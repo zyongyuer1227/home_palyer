@@ -7,7 +7,6 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
-import retrofit2.http.PUT
 
 interface ApiService {
 
@@ -39,7 +38,7 @@ interface ApiService {
     suspend fun favorites(): Response<List<Channel>>
 
     @POST("api/favorites")
-    suspend fun addFavorite(@Body body: FavoriteBody): Response<Channel>
+    suspend fun addFavorite(@Body body: FavoriteBody): Response<OkBody>
 
     @DELETE("api/favorites/{channelId}")
     suspend fun removeFavorite(@Path("channelId") channelId: Int): Response<Unit>
@@ -50,11 +49,11 @@ interface ApiService {
     @POST("api/groups")
     suspend fun createGroup(@Body body: GroupNameBody): Response<GroupItem>
 
-    @PUT("api/groups/{id}/items")
+    @POST("api/groups/{id}/items")
     suspend fun updateGroupItems(
         @Path("id") id: Int,
         @Body body: GroupItemsBody,
-    ): Response<GroupItem>
+    ): Response<OkBody>
 
     @DELETE("api/groups/{id}")
     suspend fun deleteGroup(@Path("id") id: Int): Response<Unit>
@@ -86,3 +85,6 @@ data class GroupNameBody(val name: String)
 
 @kotlinx.serialization.Serializable
 data class GroupItemsBody(val channelIds: List<Int>)
+
+@kotlinx.serialization.Serializable
+data class OkBody(val ok: Boolean = false)

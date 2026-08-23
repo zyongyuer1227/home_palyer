@@ -41,7 +41,8 @@ object FavRepo {
                 val response = ApiClient.service.removeFavorite(channel.id)
                 if (!response.isSuccessful) error("HTTP ${response.code()}")
             } else {
-                ApiClient.service.addFavorite(FavoriteBody(channel.id)).bodyOrThrow()
+                val body = ApiClient.service.addFavorite(FavoriteBody(channel.id)).bodyOrThrow()
+                if (!body.ok) error("favorite add returned ok=false")
             }
         }
         if (result.isSuccess) {
