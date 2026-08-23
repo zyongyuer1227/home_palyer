@@ -1,5 +1,13 @@
 # Home Player for Android
 
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Android](https://img.shields.io/badge/platform-Android-3DDC84.svg)
+![Min SDK](https://img.shields.io/badge/min%20SDK-26-blue.svg)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF.svg)
+![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2025.01.01-4285F4.svg)
+![Media3](https://img.shields.io/badge/Media3-1.5.1-orange.svg)
+![Release](https://img.shields.io/badge/release-v1.0.0-informational.svg)
+
 Home Player is a native Android client for a Web IPTV backend. It focuses on live TV playback, channel favorites and groups, NAS video browsing, and a clean player experience for phones.
 
 ## Features
