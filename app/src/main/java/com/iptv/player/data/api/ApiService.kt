@@ -7,6 +7,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.PUT
 
 interface ApiService {
 
@@ -49,7 +50,7 @@ interface ApiService {
     @POST("api/groups")
     suspend fun createGroup(@Body body: GroupNameBody): Response<GroupItem>
 
-    @POST("api/groups/{id}/items")
+    @PUT("api/groups/{id}/items")
     suspend fun updateGroupItems(
         @Path("id") id: Int,
         @Body body: GroupItemsBody,
