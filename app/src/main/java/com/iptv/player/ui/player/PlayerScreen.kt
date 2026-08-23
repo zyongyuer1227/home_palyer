@@ -16,11 +16,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -391,7 +394,13 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
 
         if (controlsVisible) {
             // 顶部
-            Box(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopScrim)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .then(if (isLandscapeFullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars))
+                    .background(TopScrim),
+            ) {
                 TopBar(
                     title = when (payload) {
                         is PlayPayload.Live -> currentLiveChannel?.name ?: payload.channel.name
