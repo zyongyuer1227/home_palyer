@@ -39,5 +39,6 @@ jobs:
         with:
           name: "${{ github.ref_name }}"
           body: "${{ steps.notes.outputs.notes }}"
+          files: app-release.apk
           draft: false
           prerelease: false

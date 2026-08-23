@@ -24,11 +24,11 @@ captures/
 *.key
 
 # Generated packages and logs
-*.apk
 *.aab
 *.apks
 *.log
 dev.log
+!app-release.apk
 
 # OS files
 .DS_Store
