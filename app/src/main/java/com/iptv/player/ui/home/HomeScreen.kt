@@ -17,8 +17,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
@@ -32,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -47,17 +47,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.iptv.player.data.api.ApiClient
 import com.iptv.player.data.api.Channel
-import com.iptv.player.data.api.GroupItem
-import com.iptv.player.data.api.bodyOrThrow
 import com.iptv.player.data.repo.FavRepo
 import com.iptv.player.ui.common.EmptyBox
 import com.iptv.player.ui.common.ErrorBox
 import com.iptv.player.ui.common.LoadingBox
+import com.iptv.player.ui.common.rememberToastMessage
 import com.iptv.player.ui.epg.EpgDialog
 import kotlinx.coroutines.launch
 
@@ -69,15 +66,14 @@ fun HomeScreen(
     onOpenGroup: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val toast = rememberToastMessage()
     val controller = remember { HomeController(scope) }
     val state by controller.state.collectAsState()
     val favIds by FavRepo.favoriteIds.collectAsState()
 
     var epgChannel by remember { mutableStateOf<Channel?>(null) }
-    var actionChannel by remember { mutableStateOf<Channel?>(null) }
     var showSearch by remember { mutableStateOf(false) }
-    var showGroups by remember { mutableStateOf(false) }
-    var groups by remember { mutableStateOf<List<GroupItem>?>(null) }
+    var sourcesExpanded by remember { mutableStateOf(false) }
 
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
@@ -103,7 +99,8 @@ fun HomeScreen(
         FilterChipsRow(
             state = state,
             onSelectFilter = { controller.selectFilter(it) },
-            onOpenGroups = { showGroups = true },
+            sourcesExpanded = sourcesExpanded,
+            onToggleSources = { sourcesExpanded = !sourcesExpanded },
         )
 
         HeaderRow(
@@ -145,9 +142,25 @@ fun HomeScreen(
                                     channel = ch,
                                     favorite = ch.id in favIds,
                                     onPlay = { onPlay(ch) },
-                                    onToggleFavorite = { scope.launch { FavRepo.toggle(ch) } },
+                                    onToggleFavorite = {
+                                        scope.launch {
+                                            if (FavRepo.toggle(ch)) {
+                                                if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                            } else {
+                                                toast("收藏操作失败")
+                                            }
+                                        }
+                                    },
                                     onEpg = { epgChannel = ch },
-                                    onLongPress = { actionChannel = ch },
+                                    onLongPress = {
+                                        scope.launch {
+                                            if (FavRepo.toggle(ch)) {
+                                                if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                            } else {
+                                                toast("收藏操作失败")
+                                            }
+                                        }
+                                    },
                                 )
                             }
                             if (state.loadingMore) {
@@ -172,9 +185,25 @@ fun HomeScreen(
                                         channel = ch,
                                         favorite = ch.id in favIds,
                                         onPlay = { onPlay(ch) },
-                                        onToggleFavorite = { scope.launch { FavRepo.toggle(ch) } },
+                                        onToggleFavorite = {
+                                            scope.launch {
+                                                if (FavRepo.toggle(ch)) {
+                                                    if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                                } else {
+                                                    toast("收藏操作失败")
+                                                }
+                                            }
+                                        },
                                         onEpg = { epgChannel = ch },
-                                        onLongPress = { actionChannel = ch },
+                                        onLongPress = {
+                                            scope.launch {
+                                                if (FavRepo.toggle(ch)) {
+                                                    if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                                } else {
+                                                    toast("收藏操作失败")
+                                                }
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -202,83 +231,7 @@ fun HomeScreen(
         )
     }
 
-    actionChannel?.let { ch ->
-        ChannelActionDialog(
-            channel = ch,
-            favorite = ch.id in favIds,
-            onPlay = {
-                actionChannel = null
-                onPlay(ch)
-            },
-            onToggleFavorite = {
-                actionChannel = null
-                scope.launch { FavRepo.toggle(ch) }
-            },
-            onEpg = {
-                actionChannel = null
-                epgChannel = ch
-            },
-            onDismiss = { actionChannel = null },
-        )
-    }
-
-    if (showGroups) {
-        GroupsDialog(
-            groups = groups,
-            onSelect = { id ->
-                showGroups = false
-                onOpenGroup(id)
-            },
-            onDismiss = { showGroups = false },
-            onLoad = {
-                if (groups == null) {
-                    groups = try {
-                        ApiClient.service.groups().bodyOrThrow()
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun ChannelActionDialog(
-    channel: Channel,
-    favorite: Boolean,
-    onPlay: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onEpg: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                channel.name,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        text = {
-            Text(
-                channel.grp?.takeIf { it.isNotBlank() } ?: "直播频道",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        confirmButton = { TextButton(onClick = onPlay) { Text("播放") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onToggleFavorite) {
-                    Text(if (favorite) "取消收藏" else "收藏")
-                }
-                TextButton(onClick = onEpg) {
-                    Text("节目单")
-                }
-            }
-        },
-    )
+    onOpenGroup.hashCode()
 }
 
 @Composable
@@ -317,7 +270,8 @@ private fun SearchDialog(query: String, onQueryChange: (String) -> Unit, onDismi
 private fun FilterChipsRow(
     state: HomeUiState,
     onSelectFilter: (ChannelFilter) -> Unit,
-    onOpenGroups: () -> Unit,
+    sourcesExpanded: Boolean,
+    onToggleSources: () -> Unit,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
@@ -326,11 +280,37 @@ private fun FilterChipsRow(
     ) {
         item {
             FilterChip(
-                selected = state.filter is ChannelFilter.All,
-                onClick = { onSelectFilter(ChannelFilter.All) },
-                label = { Text("全部") },
+                selected = state.filter is ChannelFilter.All || state.filter is ChannelFilter.BySource,
+                onClick = onToggleSources,
+                label = { Text("直播源") },
                 colors = filterChipColors(),
+                trailingIcon = {
+                    Icon(
+                        if (sourcesExpanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (sourcesExpanded) "收起直播源" else "展开直播源",
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
             )
+        }
+        if (sourcesExpanded) {
+            item {
+                FilterChip(
+                    selected = state.filter is ChannelFilter.All,
+                    onClick = { onSelectFilter(ChannelFilter.All) },
+                    label = { Text("全部直播源") },
+                    colors = filterChipColors(),
+                )
+            }
+            items(state.sources.size, key = { state.sources[it].id }) { i ->
+                val src = state.sources[i]
+                FilterChip(
+                    selected = (state.filter as? ChannelFilter.BySource)?.source?.id == src.id,
+                    onClick = { onSelectFilter(ChannelFilter.BySource(src)) },
+                    label = { Text(src.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    colors = filterChipColors(),
+                )
+            }
         }
         item {
             FilterChip(
@@ -340,27 +320,18 @@ private fun FilterChipsRow(
                 colors = filterChipColors(),
             )
         }
-        item {
+        items(state.customGroups.size, key = { state.customGroups[it].id ?: state.customGroups[it].name }) { i ->
+            val group = state.customGroups[i]
             FilterChip(
-                selected = false,
-                onClick = onOpenGroups,
-                label = { Text("分组") },
-                colors = filterChipColors(),
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Folder,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                selected = (state.filter as? ChannelFilter.ByCustomGroup)?.group?.id == group.id,
+                onClick = { onSelectFilter(ChannelFilter.ByCustomGroup(group)) },
+                label = {
+                    Text(
+                        "${group.name}（${group.itemCount}）",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 },
-            )
-        }
-        items(state.sources.filter { !it.isNas }.size, key = { state.sources.filter { !it.isNas }[it].id }) { i ->
-            val src = state.sources.filter { !it.isNas }[i]
-            FilterChip(
-                selected = (state.filter as? ChannelFilter.BySource)?.source?.id == src.id,
-                onClick = { onSelectFilter(ChannelFilter.BySource(src)) },
-                label = { Text(src.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 colors = filterChipColors(),
             )
         }
@@ -419,36 +390,4 @@ private fun HeaderRow(
             )
         }
     }
-}
-
-@Composable
-private fun GroupsDialog(
-    groups: List<GroupItem>?,
-    onSelect: (Int) -> Unit,
-    onDismiss: () -> Unit,
-    onLoad: suspend () -> Unit,
-) {
-    LaunchedEffect(Unit) { onLoad() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("自定义分组") },
-        text = {
-            when {
-                groups == null -> LoadingBox("加载分组...")
-                groups.isEmpty() -> Text("暂无自定义分组", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    groups.forEach { g ->
-                        TextButton(onClick = { onSelect(g.id ?: return@TextButton) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                "${g.name}（${g.itemCount}）",
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
 }

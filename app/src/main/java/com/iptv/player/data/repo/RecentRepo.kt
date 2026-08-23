@@ -74,7 +74,13 @@ object RecentRepo {
         }
     }
 
+    fun clear() {
+        if (!::context.isInitialized) return
+        scope.launch { save(emptyList()) }
+    }
+
     private suspend fun save(items: List<RecentItem>) {
+        _items.value = items
         context.recentStore.edit { prefs ->
             prefs[recentKey] = json.encodeToString(ListSerializer(RecentItem.serializer()), items)
         }

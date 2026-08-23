@@ -1,13 +1,16 @@
 package com.iptv.player.ui.home
 
+import com.iptv.player.data.api.ApiClient
 import com.iptv.player.data.api.Channel
 import com.iptv.player.data.api.ChannelPage
+import com.iptv.player.data.api.GroupItem
 import com.iptv.player.data.api.Source
+import com.iptv.player.data.api.bodyOrThrow
 import com.iptv.player.data.repo.ChannelRepo
+import com.iptv.player.data.repo.FavRepo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,10 +23,12 @@ sealed interface ChannelFilter {
     data object All : ChannelFilter
     data object Favorite : ChannelFilter
     data class BySource(val source: Source) : ChannelFilter
+    data class ByCustomGroup(val group: GroupItem) : ChannelFilter
 }
 
 data class HomeUiState(
     val sources: List<Source> = emptyList(),
+    val customGroups: List<GroupItem> = emptyList(),
     val filter: ChannelFilter = ChannelFilter.All,
     val query: String = "",
     val channels: List<Channel> = emptyList(),
@@ -41,12 +46,12 @@ class HomeController(private val scope: CoroutineScope) {
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     private var loadJob: Job? = null
-    private var queryJob: Job? = null
     private val queryFlow = MutableStateFlow("")
 
     init {
         loadSources()
-        queryJob = scope.launch {
+        loadCustomGroups()
+        scope.launch {
             queryFlow
                 .debounce(400)
                 .distinctUntilChanged()
@@ -61,7 +66,16 @@ class HomeController(private val scope: CoroutineScope) {
         scope.launch {
             runCatching { ChannelRepo.sources().getOrThrow() }
                 .onSuccess { srcs ->
-                    _state.update { it.copy(sources = srcs) }
+                    _state.update { it.copy(sources = srcs.filterNot { source -> source.isNas }) }
+                }
+        }
+    }
+
+    fun loadCustomGroups() {
+        scope.launch {
+            runCatching { ApiClient.service.groups().bodyOrThrow() }
+                .onSuccess { groups ->
+                    _state.update { it.copy(customGroups = groups.filter { group -> group.name.isNotBlank() }) }
                 }
         }
     }
@@ -118,16 +132,35 @@ class HomeController(private val scope: CoroutineScope) {
     private suspend fun fetch(offset: Int): ChannelPage? {
         val s = _state.value
         val q = s.query.trim().takeIf { it.isNotEmpty() }
-        val favorite = s.filter is ChannelFilter.Favorite
-        val sourceId = (s.filter as? ChannelFilter.BySource)?.source?.id
-        return runCatching {
-            ChannelRepo.channels(
-                q = q,
-                favorite = favorite,
-                sourceId = sourceId,
-                limit = 200,
-                offset = offset,
-            ).getOrThrow()
-        }.getOrNull()
+        return when (val filter = s.filter) {
+            ChannelFilter.All -> loadChannels(q = q, sourceId = null, offset = offset)
+            ChannelFilter.Favorite -> {
+                val list = FavRepo.refresh()
+                    .map { FavRepo.favorites.value }
+                    .getOrNull()
+                    .orEmpty()
+                    .filterByQuery(q)
+                list.page(offset)
+            }
+            is ChannelFilter.BySource -> loadChannels(q = q, sourceId = filter.source.id, offset = offset)
+            is ChannelFilter.ByCustomGroup -> filter.group.items.filterByQuery(q).page(offset)
+        }
     }
+
+    private suspend fun loadChannels(q: String?, sourceId: Int?, offset: Int): ChannelPage? =
+        ChannelRepo.channels(
+            q = q,
+            sourceId = sourceId,
+            limit = 200,
+            offset = offset,
+        ).getOrNull()
+
+    private fun List<Channel>.filterByQuery(q: String?): List<Channel> =
+        if (q.isNullOrBlank()) this else filter { channel ->
+            channel.name.contains(q, ignoreCase = true) ||
+                channel.grp.orEmpty().contains(q, ignoreCase = true)
+        }
+
+    private fun List<Channel>.page(offset: Int, limit: Int = 200): ChannelPage =
+        ChannelPage(total = size, channels = drop(offset).take(limit))
 }

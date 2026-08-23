@@ -6,7 +6,8 @@ import android.media.AudioManager
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -15,22 +16,29 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,10 +69,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +78,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
 import com.iptv.player.data.api.Channel
+import com.iptv.player.data.api.NasVideo
 import com.iptv.player.data.repo.ChannelRepo
 import com.iptv.player.data.repo.FavRepo
 import com.iptv.player.data.repo.NasRepo
@@ -118,6 +123,10 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     var volumeBeforeMute by remember { mutableStateOf(PlaybackController.player.volume.coerceAtLeast(0.6f)) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var livePlaylist by remember { mutableStateOf<List<Channel>>(emptyList()) }
+    var currentNas by remember { mutableStateOf<PlayPayload.Nas?>(null) }
+    var episodeList by remember { mutableStateOf<List<NasVideo>>(emptyList()) }
+    var episodeDialogVisible by remember { mutableStateOf(false) }
+    var autoAdvanceLocked by remember { mutableStateOf(false) }
 
     val status by PlaybackController.status.collectAsState()
     val playingChannel by PlaybackController.playingChannel.collectAsState()
@@ -131,6 +140,29 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     val closePlayer = {
         PlaybackController.stop()
         onClose()
+    }
+    fun playNasEpisode(nas: PlayPayload.Nas) {
+        playbackError = null
+        controlsVisible = true
+        currentNas = nas
+        RecentRepo.record(nas)
+        scope.launch {
+            val nextQuality = NasQuality.fromLabel(nas.quality)
+            quality = nextQuality
+            tryDirect = nas.tryDirect
+            val nextAudioCodec = if (nextQuality == NasQuality.ORIGINAL) {
+                runCatching { NasRepo.streamInfo(nas.sourceId, nas.path).getOrThrow().audioCodec }.getOrNull()
+            } else {
+                null
+            }
+            audioCodec = nextAudioCodec
+            PlaybackController.playNas(
+                com.iptv.player.player.NasPlayRequest(nas.sourceId, nas.sourceName, nas.path, nas.name),
+                nextQuality,
+                nas.tryDirect,
+                nextAudioCodec,
+            )
+        }
     }
 
     DisposableEffect(isLandscapeFullscreen) {
@@ -173,21 +205,23 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
             }
             is PlayPayload.Nas -> {
                 livePlaylist = emptyList()
-                RecentRepo.record(p)
-                quality = NasQuality.fromLabel(p.quality)
-                tryDirect = p.tryDirect
-                audioCodec = if (quality == NasQuality.ORIGINAL) {
-                    runCatching { NasRepo.streamInfo(p.sourceId, p.path).getOrThrow().audioCodec }.getOrNull()
-                } else null
-                PlaybackController.playNas(
-                    com.iptv.player.player.NasPlayRequest(p.sourceId, p.sourceName, p.path, p.name),
-                    quality,
-                    tryDirect,
-                    audioCodec,
-                )
+                playNasEpisode(p)
             }
             null -> toast("无法解析播放请求")
         }
+    }
+
+    LaunchedEffect(currentNas?.sourceId, currentNas?.path) {
+        val nas = currentNas ?: run {
+            episodeList = emptyList()
+            return@LaunchedEffect
+        }
+        val parentPath = parentDir(nas.path)
+        episodeList = NasRepo.browse(nas.sourceId, parentPath)
+            .getOrNull()
+            ?.videos
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOf(NasVideo(nas.name, nas.path))
     }
 
     // Position / state polling
@@ -237,12 +271,36 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     val currentLiveIndex = currentLiveChannel?.let { ch -> livePlaylist.indexOfFirst { it.id == ch.id } } ?: -1
     val canPreviousLive = currentLiveIndex > 0
     val canNextLive = currentLiveIndex >= 0 && currentLiveIndex < livePlaylist.lastIndex
+    val currentNasIndex = currentNas?.let { nas -> episodeList.indexOfFirst { it.path == nas.path } } ?: -1
+    val canNextNas = currentNasIndex >= 0 && currentNasIndex < episodeList.lastIndex
     fun playLiveAt(index: Int) {
         val channel = livePlaylist.getOrNull(index) ?: return
         playbackError = null
         controlsVisible = true
         RecentRepo.record(PlayPayload.Live(channel))
         PlaybackController.playLive(channel)
+    }
+    fun playNasAt(index: Int) {
+        val base = currentNas ?: return
+        val episode = episodeList.getOrNull(index) ?: return
+        episodeDialogVisible = false
+        playNasEpisode(
+            base.copy(
+                path = episode.path,
+                name = episode.name,
+                quality = quality.label,
+                tryDirect = tryDirect,
+            )
+        )
+    }
+
+    LaunchedEffect(playbackState, currentNasIndex, episodeList) {
+        if (playbackState != Player.STATE_ENDED) {
+            autoAdvanceLocked = false
+        } else if (!autoAdvanceLocked && canNextNas) {
+            autoAdvanceLocked = true
+            playNasAt(currentNasIndex + 1)
+        }
     }
 
     Box(
@@ -336,23 +394,28 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
 
         if (controlsVisible) {
             // 顶部
-            Box(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopScrim)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .then(if (isLandscapeFullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars))
+                    .background(TopScrim),
+            ) {
                 TopBar(
                     title = when (payload) {
                         is PlayPayload.Live -> currentLiveChannel?.name ?: payload.channel.name
-                        is PlayPayload.Nas -> payload.name
+                        is PlayPayload.Nas -> currentNas?.name ?: payload.name
                     },
                     subtitle = when (payload) {
                         is PlayPayload.Live -> listOfNotNull(
                             playingChannel?.grp?.takeIf { it.isNotBlank() },
                         ).joinToString(" · ").ifBlank { "直播" }
-                        is PlayPayload.Nas -> "${payload.sourceName} · NAS"
+                        is PlayPayload.Nas -> "${currentNas?.sourceName ?: payload.sourceName} · NAS"
                     },
-                    isFavorite = payload is PlayPayload.Live && (payload.channel.id in favIds),
+                    isFavorite = currentLiveChannel?.id?.let { it in favIds } == true,
                     onFavorite = {
-                        if (payload is PlayPayload.Live) {
-                            val ch = payload.channel
-                            scope.launch { FavRepo.toggle(ch) }
+                        currentLiveChannel?.let { ch ->
+                            scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") }
                         }
                     },
                     onClose = closePlayer,
@@ -391,6 +454,10 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                     onPreviousLive = { playLiveAt(currentLiveIndex - 1) },
                     onNextLive = { playLiveAt(currentLiveIndex + 1) },
                     isNas = payload is PlayPayload.Nas,
+                    hasEpisodes = episodeList.size > 1,
+                    canNextNas = canNextNas,
+                    onShowEpisodes = { episodeDialogVisible = true },
+                    onNextNas = { playNasAt(currentNasIndex + 1) },
                     quality = quality,
                     tryDirect = tryDirect,
                     qualityMenu = qualityMenu,
@@ -399,11 +466,12 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                         qualityMenu = false
                         if (q != quality) {
                             quality = q
-                            if (payload is PlayPayload.Nas) {
+                            val nas = currentNas
+                            if (nas != null) {
                                 if (q == NasQuality.ORIGINAL && audioCodec == null) {
                                     scope.launch {
                                         audioCodec = runCatching {
-                                            NasRepo.streamInfo(payload.sourceId, payload.path).getOrThrow().audioCodec
+                                            NasRepo.streamInfo(nas.sourceId, nas.path).getOrThrow().audioCodec
                                         }.getOrNull()
                                     }
                                 }
@@ -413,7 +481,7 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                     },
                     onTryDirectChange = { value ->
                         tryDirect = value
-                        if (payload is PlayPayload.Nas) {
+                        if (currentNas != null) {
                             PlaybackController.reloadCurrentWith(quality, value, audioCodec)
                         }
                     },
@@ -474,8 +542,18 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
             },
         )
     }
+
+    if (episodeDialogVisible && currentNas != null) {
+        EpisodeDialog(
+            episodes = episodeList,
+            currentPath = currentNas!!.path,
+            onSelect = { index -> playNasAt(index) },
+            onDismiss = { episodeDialogVisible = false },
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TopBar(
     title: String,
@@ -500,6 +578,7 @@ private fun TopBar(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee(),
             )
             Text(
                 subtitle,
@@ -536,6 +615,10 @@ private fun BottomBar(
     onPreviousLive: () -> Unit,
     onNextLive: () -> Unit,
     isNas: Boolean,
+    hasEpisodes: Boolean,
+    canNextNas: Boolean,
+    onShowEpisodes: () -> Unit,
+    onNextNas: () -> Unit,
     quality: NasQuality,
     tryDirect: Boolean,
     qualityMenu: Boolean,
@@ -610,13 +693,15 @@ private fun BottomBar(
             }
             IconButton(onClick = onToggleMute) {
                 Icon(
-                    if (isMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = if (isMuted) "取消静音" else "静音",
                     tint = Color.White,
                 )
             }
             IconButton(onClick = onToggleFullscreen) {
-                RotateScreenIcon(
+                Icon(
+                    if (isLandscapeFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                    contentDescription = if (isLandscapeFullscreen) "退出全屏" else "全屏",
                     tint = Color.White,
                     modifier = Modifier.size(28.dp),
                 )
@@ -638,6 +723,20 @@ private fun BottomBar(
                 }
             }
             if (isNas) {
+                IconButton(onClick = onShowEpisodes, enabled = hasEpisodes) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.FormatListBulleted,
+                        contentDescription = "剧集清单",
+                        tint = if (hasEpisodes) Color.White else Color.White.copy(alpha = 0.35f),
+                    )
+                }
+                IconButton(onClick = onNextNas, enabled = canNextNas) {
+                    Icon(
+                        Icons.Filled.SkipNext,
+                        contentDescription = "下一集",
+                        tint = if (canNextNas) Color.White else Color.White.copy(alpha = 0.35f),
+                    )
+                }
                 Box(modifier = Modifier.weight(1f))
                 Box {
                     Row(
@@ -700,6 +799,65 @@ private fun BottomBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EpisodeDialog(
+    episodes: List<NasVideo>,
+    currentPath: String,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("剧集清单") },
+        text = {
+            LazyColumn {
+                items(episodes.size) { index ->
+                    val episode = episodes[index]
+                    val selected = episode.path == currentPath
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primaryContainer
+                                else Color.Transparent,
+                            )
+                            .clickable { onSelect(index) }
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(
+                                episode.name,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.basicMarquee(),
+                            )
+                            if (selected) {
+                                Text(
+                                    "正在播放",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
+}
+
 private fun formatDuration(ms: Long): String {
     if (ms <= 0) return "--:--"
     val totalSec = ms / 1000
@@ -710,60 +868,13 @@ private fun formatDuration(ms: Long): String {
     else String.format("%02d:%02d", m, s)
 }
 
-@Composable
-private fun RotateScreenIcon(
-    tint: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(
-            width = w * 0.075f,
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-
-        drawRoundRect(
-            color = tint,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.12f, h * 0.54f),
-            size = androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.28f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f, w * 0.08f),
-            style = stroke,
-        )
-        drawLine(
-            color = tint,
-            start = androidx.compose.ui.geometry.Offset(w * 0.20f, h * 0.62f),
-            end = androidx.compose.ui.geometry.Offset(w * 0.20f, h * 0.74f),
-            strokeWidth = stroke.width,
-            cap = StrokeCap.Round,
-        )
-
-        drawRoundRect(
-            color = tint,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.54f, h * 0.18f),
-            size = androidx.compose.ui.geometry.Size(w * 0.30f, h * 0.54f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f, w * 0.08f),
-            style = stroke,
-        )
-
-        val arrowDown = Path().apply {
-            moveTo(w * 0.20f, h * 0.20f)
-            cubicTo(w * 0.12f, h * 0.28f, w * 0.10f, h * 0.38f, w * 0.16f, h * 0.48f)
-            lineTo(w * 0.25f, h * 0.40f)
-            moveTo(w * 0.16f, h * 0.48f)
-            lineTo(w * 0.08f, h * 0.39f)
-        }
-        drawPath(arrowDown, tint, style = stroke)
-
-        val arrowUp = Path().apply {
-            moveTo(w * 0.28f, h * 0.42f)
-            cubicTo(w * 0.36f, h * 0.33f, w * 0.39f, h * 0.22f, w * 0.34f, h * 0.12f)
-            lineTo(w * 0.25f, h * 0.20f)
-            moveTo(w * 0.34f, h * 0.12f)
-            lineTo(w * 0.43f, h * 0.20f)
-        }
-        drawPath(arrowUp, tint, style = stroke)
+private fun parentDir(path: String): String? {
+    val clean = path.trimEnd('/')
+    val index = clean.lastIndexOf('/')
+    return when {
+        index < 0 -> null
+        index == 0 -> "/"
+        else -> clean.substring(0, index)
     }
 }
 

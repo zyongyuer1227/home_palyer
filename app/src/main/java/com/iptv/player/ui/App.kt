@@ -1,7 +1,6 @@
 package com.iptv.player.ui
 
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -11,7 +10,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LiveTv
@@ -35,10 +34,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,6 +64,7 @@ import com.iptv.player.ui.common.EmptyBox
 import com.iptv.player.ui.common.ErrorBox
 import com.iptv.player.ui.common.LoadingBox
 import com.iptv.player.ui.common.PlayPayload
+import com.iptv.player.ui.common.rememberToastMessage
 import com.iptv.player.ui.fav.FavoritesScreen
 import com.iptv.player.ui.home.ChannelListView
 import com.iptv.player.ui.home.HomeScreen
@@ -88,7 +90,6 @@ fun AppRoot() {
     LaunchedEffect(Unit) {
         PlaybackController.errors.collect { msg ->
             FileLogger.e("App", "playback error: $msg")
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         }
     }
     LaunchedEffect(Unit) {
@@ -140,7 +141,8 @@ fun MainScaffold(
     onOpenPlayer: (String) -> Unit,
     onOpenGroup: (Int) -> Unit,
 ) {
-    var tab by remember { mutableStateOf(MainTab.LIVE) }
+    var tabIndex by rememberSaveable { mutableIntStateOf(MainTab.LIVE.ordinal) }
+    val tab = MainTab.entries.getOrElse(tabIndex) { MainTab.LIVE }
     val state by serverRepo.state.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -179,7 +181,7 @@ fun MainScaffold(
                 MainTab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = tab == t,
-                        onClick = { tab = t },
+                        onClick = { tabIndex = t.ordinal },
                         icon = { Icon(t.icon, contentDescription = t.label) },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -296,6 +298,8 @@ private fun serverDisplayName(server: ServerConfig, index: Int?): String {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupScreen(groupId: Int, onPlay: (Channel) -> Unit, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val toast = rememberToastMessage()
     var data by remember { mutableStateOf<GroupItem?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -316,7 +320,7 @@ fun GroupScreen(groupId: Int, onPlay: (Channel) -> Unit, onBack: () -> Unit) {
                 title = { Text(data?.name ?: "分组") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
             )
@@ -331,6 +335,7 @@ fun GroupScreen(groupId: Int, onPlay: (Channel) -> Unit, onBack: () -> Unit) {
                 channels = data!!.items,
                 onPlay = onPlay,
                 favoriteIds = favIds,
+                onToggleFavorite = { ch -> scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
                 modifier = Modifier.padding(padding),
             )
         }

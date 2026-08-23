@@ -2,6 +2,8 @@ package com.iptv.player.ui.nas
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,9 +37,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,14 +62,32 @@ import com.iptv.player.ui.common.ErrorBox
 import com.iptv.player.ui.common.LoadingBox
 import com.iptv.player.ui.common.PlayPayload
 import com.iptv.player.ui.common.formatSize
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+
+private val NasDirStackStateSaver = Saver<MutableState<List<NasDir>>, String>(
+    save = { state ->
+        Json.encodeToString(ListSerializer(NasDir.serializer()), state.value)
+    },
+    restore = { raw ->
+        mutableStateOf(
+            runCatching {
+                Json.decodeFromString(ListSerializer(NasDir.serializer()), raw)
+            }.getOrDefault(emptyList())
+        )
+    },
+)
 
 @Composable
 fun NasScreen(modifier: Modifier = Modifier, onPlay: (PlayPayload.Nas) -> Unit) {
     var sources by remember { mutableStateOf<List<Source>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    var selected by remember { mutableStateOf<Source?>(null) }
+    var selectedSourceId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var reloadKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadKey) {
+        sources = null
+        error = null
         val r = runCatching { ApiClient.service.sources().bodyOrThrow() }
         r.onSuccess { list -> sources = list.filter { it.isNas } }
             .onFailure { error = "加载源失败：${it.message}" }
@@ -71,15 +95,25 @@ fun NasScreen(modifier: Modifier = Modifier, onPlay: (PlayPayload.Nas) -> Unit) 
 
     when {
         sources == null && error == null -> LoadingBox("加载源...", modifier)
-        error != null -> ErrorBox(error!!, onRetry = { error = null; sources = null }, modifier = modifier)
+        error != null -> ErrorBox(error!!, onRetry = { reloadKey++ }, modifier = modifier)
         sources.isNullOrEmpty() -> EmptyBox("没有可用的 NAS 网盘源", modifier)
-        selected == null -> SourcePicker(sources!!, onSelect = { selected = it }, modifier = modifier)
-        else -> NasBrowser(
-            source = selected!!,
-            onBackToSources = { selected = null },
-            onPlay = onPlay,
-            modifier = modifier,
-        )
+        else -> {
+            val selected = sources!!.firstOrNull { it.id == selectedSourceId }
+            if (selected == null) {
+                SourcePicker(
+                    sources = sources!!,
+                    onSelect = { selectedSourceId = it.id },
+                    modifier = modifier,
+                )
+            } else {
+                NasBrowser(
+                    source = selected,
+                    onBackToSources = { selectedSourceId = null },
+                    onPlay = onPlay,
+                    modifier = modifier,
+                )
+            }
+        }
     }
 }
 
@@ -140,6 +174,7 @@ private fun SourcePicker(sources: List<Source>, onSelect: (Source) -> Unit, modi
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NasBrowser(
     source: Source,
@@ -147,12 +182,15 @@ private fun NasBrowser(
     onPlay: (PlayPayload.Nas) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var stack by remember { mutableStateOf<List<NasDir>>(emptyList()) }
+    var stack by rememberSaveable(source.id, saver = NasDirStackStateSaver) {
+        mutableStateOf<List<NasDir>>(emptyList())
+    }
     var dirs by remember { mutableStateOf<List<NasDir>>(emptyList()) }
     var videos by remember { mutableStateOf<List<NasVideo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingVideo by remember { mutableStateOf<NasVideo?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
     val currentPath = stack.lastOrNull()?.path
     fun goBack() {
@@ -165,7 +203,7 @@ private fun NasBrowser(
 
     BackHandler { goBack() }
 
-    LaunchedEffect(currentPath) {
+    LaunchedEffect(currentPath, retryKey) {
         loading = true
         error = null
         val r = runCatching { NasRepo.browse(source.id, currentPath).getOrThrow() }
@@ -196,7 +234,11 @@ private fun NasBrowser(
 
         when {
             loading -> LoadingBox("加载目录...", Modifier.weight(1f))
-            error != null -> ErrorBox(message = error!!, modifier = Modifier.weight(1f))
+            error != null -> ErrorBox(
+                message = error!!,
+                onRetry = { retryKey++ },
+                modifier = Modifier.weight(1f),
+            )
             dirs.isEmpty() && videos.isEmpty() -> EmptyBox("空目录", Modifier.weight(1f))
             else -> LazyColumn(
                 modifier = Modifier.weight(1f),
@@ -243,6 +285,7 @@ private fun NasBrowser(
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.basicMarquee(),
                                     )
                                     Text(
                                         formatSize(video.size),
