@@ -63,7 +63,6 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     modifier: Modifier = Modifier,
     onPlay: (Channel) -> Unit,
-    onOpenGroup: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val toast = rememberToastMessage()
@@ -235,7 +234,6 @@ fun HomeScreen(
         )
     }
 
-    onOpenGroup.hashCode()
 }
 
 @Composable
