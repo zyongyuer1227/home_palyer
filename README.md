@@ -1,4 +1,4 @@
-# Home Player for Android
+# Home Player for Android 📺
 
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Android](https://img.shields.io/badge/platform-Android-3DDC84.svg)
@@ -8,61 +8,61 @@
 ![Media3](https://img.shields.io/badge/Media3-1.5.1-orange.svg)
 ![Release](https://img.shields.io/badge/release-v1.0.0-informational.svg)
 
-Home Player is a native Android client for a Web IPTV backend. It focuses on live TV playback, channel favorites and groups, NAS video browsing, and a clean player experience for phones.
+**Home Player 是 Web IPTV 服务的原生 Android 客户端**,专注手机端的直播观看、频道收藏与分组、NAS 网盘点播,以及清爽的播放器体验。
 
-> **⚠️ Not standalone**: Home Player is only a **frontend client**. It is useless without the [Web IPTV](https://github.com/zyongyuer1227/web_iptv) server running on your own device/NAS — it does not fetch or manage any live sources by itself. Downloading it alone has no meaning; please deploy and start the Web IPTV server **before** installing the app.
+> **⚠️ 非独立应用**:Home Player 只是**前端客户端**。没有部署在你自己设备/NAS 上的 [Web IPTV](https://github.com/zyongyuer1227/web_iptv) 后端,它**无法独立工作**——它自身不抓取、不管理任何直播源。单独下载安装毫无意义,请**先部署并启动 Web IPTV 服务,再安装本 App**。
 
-> **Companion app**: Home Player pairs with the open-source [Web IPTV](https://github.com/zyongyuer1227/web_iptv) server. Both are developed by the same author but **may not always be released in sync** — please refer to the author's announcements on the [Web IPTV Releases](https://github.com/zyongyuer1227/web_iptv/releases) page for release information.
+> **配套关系**:Home Player 与本仓库的开源服务端 [Web IPTV](https://github.com/zyongyuer1227/web_iptv) 配套使用,两者由**同一作者**开发,但**不一定同步发布**;发布信息请以作者在 [Web IPTV Releases](https://github.com/zyongyuer1227/web_iptv/releases) 的说明为准。
 
-## Features
+## 功能特性
 
-- Multiple backend server profiles with health checks.
-- Live TV channel browsing, search, source filtering, favorites, custom groups, and EPG lookup.
-- NAS video browsing with quality selection and next-episode playback.
-- Media3/ExoPlayer playback with HLS, direct stream, relay, TS/fMP4 fallback, and reconnect handling.
-- Portrait playback, landscape fullscreen mode, status-bar safe layout, mute, seek, brightness and volume gestures.
-- Local troubleshooting log with sensitive URL/token/path redaction.
+- **多服务器配置** — 可配置多个后端服务器,并带健康检查。
+- **直播观看** — 频道浏览、搜索、源过滤、收藏、自定义分组,以及 EPG 节目单查询。
+- **NAS 网盘点播** — 目录浏览、画质选择、剧集列表与下一集连播。
+- **Media3/ExoPlayer 播放** — 支持 HLS、直连、代理、中继、TS/fMP4 兜底与断流重连。
+- **播放体验** — 竖屏播放、横屏全屏、状态栏安全区布局、静音、拖动进度条、亮度与音量手势。
+- **本地排障日志** — 自动脱敏 URL/token/路径等敏感信息。
 
-## Requirements
+## 环境要求
 
-- Android 8.0 or later.
-- A compatible Web IPTV backend.
-- Android Studio or JDK 17+ for building from source.
-- Android SDK with compile SDK 36 installed.
+- Android 8.0 及以上。
+- 一个可用的 Web IPTV 后端服务。
+- 从源码构建需要 Android Studio 或 JDK 17+。
+- 需要安装 compile SDK 36 的 Android SDK。
 
-## Build
+## 构建
 
-Clone the repository and open it in Android Studio, or build from the command line:
+克隆仓库后用 Android Studio 打开,或命令行构建:
 
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
-The debug APK is generated at:
+Debug APK 输出到:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Release Build
+## 发布构建(签名)
 
-Release signing is intentionally configured through local-only properties. Copy `local.properties.example` to `local.properties`, update the values for your machine and keystore, then run:
+发布签名**刻意**只通过本地属性配置,不进入版本库。将 `local.properties.example` 复制为 `local.properties`,按你的机器和 keystore 修改配置后运行:
 
 ```bash
 ./gradlew :app:assembleRelease
 ```
 
-The release APK is generated at:
+Release APK 输出到:
 
 ```text
 app/build/outputs/apk/release/app-release.apk
 ```
 
-Do not commit `local.properties`, keystores, or generated APK files. Publish APKs as release assets.
+**不要**提交 `local.properties`、keystore。Release APK 由 CI 发版时自动附带(仓库根目录的 `app-release.apk` 为发布用签名包,由发布流程维护)。
 
-## Backend
+## 后端接口
 
-The app expects a backend that exposes endpoints such as:
+App 依赖的后端接口大致如下:
 
 - `GET /api/health`
 - `GET /api/sources`
@@ -76,8 +76,8 @@ The app expects a backend that exposes endpoints such as:
 - `GET /api/nas/{sourceId}/browse`
 - `GET /api/nas/{sourceId}/streaminfo`
 
-The server can be configured inside the app using an address such as `http://192.168.1.100:8081` or a reverse-proxy path.
+服务器地址可在 App 内配置,例如 `http://192.168.1.100:8081` 或反向代理路径。
 
-## License
+## 许可
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+本项目基于 **MIT License** 开源,详见 [LICENSE](LICENSE)。
