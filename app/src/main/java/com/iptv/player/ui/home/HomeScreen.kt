@@ -99,6 +99,10 @@ fun HomeScreen(
         FilterChipsRow(
             state = state,
             onSelectFilter = { controller.selectFilter(it) },
+            onSelectSourceFilter = {
+                controller.selectFilter(it)
+                sourcesExpanded = false
+            },
             sourcesExpanded = sourcesExpanded,
             onToggleSources = { sourcesExpanded = !sourcesExpanded },
         )
@@ -270,6 +274,7 @@ private fun SearchDialog(query: String, onQueryChange: (String) -> Unit, onDismi
 private fun FilterChipsRow(
     state: HomeUiState,
     onSelectFilter: (ChannelFilter) -> Unit,
+    onSelectSourceFilter: (ChannelFilter) -> Unit,
     sourcesExpanded: Boolean,
     onToggleSources: () -> Unit,
 ) {
@@ -279,10 +284,17 @@ private fun FilterChipsRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         item {
+            val sourceLabel = (state.filter as? ChannelFilter.BySource)?.source?.name ?: "直播源"
             FilterChip(
                 selected = state.filter is ChannelFilter.All || state.filter is ChannelFilter.BySource,
                 onClick = onToggleSources,
-                label = { Text("直播源") },
+                label = {
+                    Text(
+                        sourceLabel,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 colors = filterChipColors(),
                 trailingIcon = {
                     Icon(
@@ -297,7 +309,7 @@ private fun FilterChipsRow(
             item {
                 FilterChip(
                     selected = state.filter is ChannelFilter.All,
-                    onClick = { onSelectFilter(ChannelFilter.All) },
+                    onClick = { onSelectSourceFilter(ChannelFilter.All) },
                     label = { Text("全部直播源") },
                     colors = filterChipColors(),
                 )
@@ -306,7 +318,7 @@ private fun FilterChipsRow(
                 val src = state.sources[i]
                 FilterChip(
                     selected = (state.filter as? ChannelFilter.BySource)?.source?.id == src.id,
-                    onClick = { onSelectFilter(ChannelFilter.BySource(src)) },
+                    onClick = { onSelectSourceFilter(ChannelFilter.BySource(src)) },
                     label = { Text(src.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     colors = filterChipColors(),
                 )
