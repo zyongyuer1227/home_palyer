@@ -2,8 +2,9 @@ package com.iptv.player.data.repo
 
 import com.iptv.player.data.api.ApiClient
 import com.iptv.player.data.api.Channel
+import com.iptv.player.data.api.FavoriteBody
 import com.iptv.player.data.api.bodyOrThrow
-import kotlinx.coroutines.Dispatchers
+import com.iptv.player.data.local.FileLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,16 +25,32 @@ object FavRepo {
 
     suspend fun toggle(channel: Channel): Boolean {
         val current = _favoriteIds.value.contains(channel.id)
+        val previousFavorites = _favorites.value
+        val previousIds = _favoriteIds.value
+
+        if (current) {
+            _favoriteIds.value = previousIds - channel.id
+            _favorites.value = previousFavorites.filterNot { it.id == channel.id }
+        } else {
+            _favoriteIds.value = previousIds + channel.id
+            _favorites.value = (listOf(channel) + previousFavorites.filterNot { it.id == channel.id })
+        }
+
         val result = runCatching {
             if (current) {
-                ApiClient.service.removeFavorite(channel.id)
-                true
+                val response = ApiClient.service.removeFavorite(channel.id)
+                if (!response.isSuccessful) error("HTTP ${response.code()}")
             } else {
-                ApiClient.service.addFavorite(com.iptv.player.data.api.FavoriteBody(channel.id))
-                true
+                ApiClient.service.addFavorite(FavoriteBody(channel.id)).bodyOrThrow()
             }
         }
-        if (result.isSuccess) refresh()
+        if (result.isSuccess) {
+            refresh()
+        } else {
+            _favorites.value = previousFavorites
+            _favoriteIds.value = previousIds
+            FileLogger.w("FavRepo", "toggle favorite failed channel=${channel.id}: ${result.exceptionOrNull()?.message}")
+        }
         return result.isSuccess
     }
 }

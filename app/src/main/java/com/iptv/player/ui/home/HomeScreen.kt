@@ -58,6 +58,7 @@ import com.iptv.player.data.repo.FavRepo
 import com.iptv.player.ui.common.EmptyBox
 import com.iptv.player.ui.common.ErrorBox
 import com.iptv.player.ui.common.LoadingBox
+import com.iptv.player.ui.common.rememberToastMessage
 import com.iptv.player.ui.epg.EpgDialog
 import kotlinx.coroutines.launch
 
@@ -69,6 +70,7 @@ fun HomeScreen(
     onOpenGroup: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val toast = rememberToastMessage()
     val controller = remember { HomeController(scope) }
     val state by controller.state.collectAsState()
     val favIds by FavRepo.favoriteIds.collectAsState()
@@ -144,9 +146,9 @@ fun HomeScreen(
                                     channel = ch,
                                     favorite = ch.id in favIds,
                                     onPlay = { onPlay(ch) },
-                                    onToggleFavorite = { scope.launch { FavRepo.toggle(ch) } },
+                                    onToggleFavorite = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
                                     onEpg = { epgChannel = ch },
-                                    onLongPress = { scope.launch { FavRepo.toggle(ch) } },
+                                    onLongPress = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
                                 )
                             }
                             if (state.loadingMore) {
@@ -171,9 +173,9 @@ fun HomeScreen(
                                         channel = ch,
                                         favorite = ch.id in favIds,
                                         onPlay = { onPlay(ch) },
-                                        onToggleFavorite = { scope.launch { FavRepo.toggle(ch) } },
+                                        onToggleFavorite = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
                                         onEpg = { epgChannel = ch },
-                                        onLongPress = { scope.launch { FavRepo.toggle(ch) } },
+                                        onLongPress = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
                                     )
                                 }
                             }
@@ -220,44 +222,6 @@ fun HomeScreen(
             },
         )
     }
-}
-
-@Composable
-private fun ChannelActionDialog(
-    channel: Channel,
-    favorite: Boolean,
-    onPlay: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onEpg: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                channel.name,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        text = {
-            Text(
-                channel.grp?.takeIf { it.isNotBlank() } ?: "直播频道",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        confirmButton = { TextButton(onClick = onPlay) { Text("播放") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onToggleFavorite) {
-                    Text(if (favorite) "取消收藏" else "收藏")
-                }
-                TextButton(onClick = onEpg) {
-                    Text("节目单")
-                }
-            }
-        },
-    )
 }
 
 @Composable

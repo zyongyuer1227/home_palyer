@@ -48,6 +48,7 @@ import com.iptv.player.data.repo.FavRepo
 import com.iptv.player.data.repo.RecentRepo
 import com.iptv.player.ui.common.EmptyBox
 import com.iptv.player.ui.common.LoadingBox
+import com.iptv.player.ui.common.rememberToastMessage
 import com.iptv.player.ui.home.ChannelListView
 import com.iptv.player.ui.epg.EpgDialog
 import kotlinx.coroutines.launch
@@ -62,6 +63,7 @@ fun FavoritesScreen(
 ) {
     var tab by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    val toast = rememberToastMessage()
     val favorites by FavRepo.favorites.collectAsState()
     val favIds by FavRepo.favoriteIds.collectAsState()
     val recentItems by RecentRepo.items.collectAsState()
@@ -106,7 +108,7 @@ fun FavoritesScreen(
                         channels = favorites,
                         favoriteIds = favIds,
                         onPlay = onPlay,
-                        onToggleFavorite = { ch -> scope.launch { FavRepo.toggle(ch) } },
+                        onToggleFavorite = { ch -> scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
                         onEpg = { epgChannel = it },
                         modifier = Modifier.weight(1f),
                     )

@@ -24,9 +24,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
@@ -34,8 +36,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -403,11 +403,10 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                         ).joinToString(" · ").ifBlank { "直播" }
                         is PlayPayload.Nas -> "${currentNas?.sourceName ?: payload.sourceName} · NAS"
                     },
-                    isFavorite = payload is PlayPayload.Live && (payload.channel.id in favIds),
+                    isFavorite = currentLiveChannel?.id?.let { it in favIds } == true,
                     onFavorite = {
-                        if (payload is PlayPayload.Live) {
-                            val ch = payload.channel
-                            scope.launch { FavRepo.toggle(ch) }
+                        currentLiveChannel?.let { ch ->
+                            scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") }
                         }
                     },
                     onClose = closePlayer,
@@ -685,7 +684,7 @@ private fun BottomBar(
             }
             IconButton(onClick = onToggleMute) {
                 Icon(
-                    if (isMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                    if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = if (isMuted) "取消静音" else "静音",
                     tint = Color.White,
                 )
@@ -717,7 +716,7 @@ private fun BottomBar(
             if (isNas) {
                 IconButton(onClick = onShowEpisodes, enabled = hasEpisodes) {
                     Icon(
-                        Icons.Filled.FormatListBulleted,
+                        Icons.AutoMirrored.Filled.FormatListBulleted,
                         contentDescription = "剧集清单",
                         tint = if (hasEpisodes) Color.White else Color.White.copy(alpha = 0.35f),
                     )

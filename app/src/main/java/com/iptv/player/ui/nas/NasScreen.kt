@@ -38,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,8 +65,11 @@ fun NasScreen(modifier: Modifier = Modifier, onPlay: (PlayPayload.Nas) -> Unit) 
     var sources by remember { mutableStateOf<List<Source>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Source?>(null) }
+    var reloadKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadKey) {
+        sources = null
+        error = null
         val r = runCatching { ApiClient.service.sources().bodyOrThrow() }
         r.onSuccess { list -> sources = list.filter { it.isNas } }
             .onFailure { error = "加载源失败：${it.message}" }
@@ -73,7 +77,7 @@ fun NasScreen(modifier: Modifier = Modifier, onPlay: (PlayPayload.Nas) -> Unit) 
 
     when {
         sources == null && error == null -> LoadingBox("加载源...", modifier)
-        error != null -> ErrorBox(error!!, onRetry = { error = null; sources = null }, modifier = modifier)
+        error != null -> ErrorBox(error!!, onRetry = { reloadKey++ }, modifier = modifier)
         sources.isNullOrEmpty() -> EmptyBox("没有可用的 NAS 网盘源", modifier)
         selected == null -> SourcePicker(sources!!, onSelect = { selected = it }, modifier = modifier)
         else -> NasBrowser(
@@ -156,6 +160,7 @@ private fun NasBrowser(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var pendingVideo by remember { mutableStateOf<NasVideo?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
     val currentPath = stack.lastOrNull()?.path
     fun goBack() {
@@ -168,7 +173,7 @@ private fun NasBrowser(
 
     BackHandler { goBack() }
 
-    LaunchedEffect(currentPath) {
+    LaunchedEffect(currentPath, retryKey) {
         loading = true
         error = null
         val r = runCatching { NasRepo.browse(source.id, currentPath).getOrThrow() }
@@ -199,7 +204,11 @@ private fun NasBrowser(
 
         when {
             loading -> LoadingBox("加载目录...", Modifier.weight(1f))
-            error != null -> ErrorBox(message = error!!, modifier = Modifier.weight(1f))
+            error != null -> ErrorBox(
+                message = error!!,
+                onRetry = { retryKey++ },
+                modifier = Modifier.weight(1f),
+            )
             dirs.isEmpty() && videos.isEmpty() -> EmptyBox("空目录", Modifier.weight(1f))
             else -> LazyColumn(
                 modifier = Modifier.weight(1f),
