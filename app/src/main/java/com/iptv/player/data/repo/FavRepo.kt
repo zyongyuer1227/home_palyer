@@ -53,4 +53,26 @@ object FavRepo {
         }
         return result.isSuccess
     }
+
+    suspend fun clearAll(): Boolean {
+        val previousFavorites = _favorites.value
+        val previousIds = _favoriteIds.value
+        _favorites.value = emptyList()
+        _favoriteIds.value = emptySet()
+
+        val result = runCatching {
+            previousIds.forEach { id ->
+                val response = ApiClient.service.removeFavorite(id)
+                if (!response.isSuccessful) error("HTTP ${response.code()}")
+            }
+        }
+        if (result.isSuccess) {
+            refresh()
+        } else {
+            _favorites.value = previousFavorites
+            _favoriteIds.value = previousIds
+            FileLogger.w("FavRepo", "clear favorites failed: ${result.exceptionOrNull()?.message}")
+        }
+        return result.isSuccess
+    }
 }

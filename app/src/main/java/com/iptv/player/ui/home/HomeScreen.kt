@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
@@ -34,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -49,7 +47,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.iptv.player.data.api.Channel
@@ -76,7 +73,7 @@ fun HomeScreen(
 
     var epgChannel by remember { mutableStateOf<Channel?>(null) }
     var showSearch by remember { mutableStateOf(false) }
-    var programGroupsExpanded by remember { mutableStateOf(false) }
+    var sourcesExpanded by remember { mutableStateOf(false) }
 
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
@@ -102,8 +99,8 @@ fun HomeScreen(
         FilterChipsRow(
             state = state,
             onSelectFilter = { controller.selectFilter(it) },
-            programGroupsExpanded = programGroupsExpanded,
-            onToggleProgramGroups = { programGroupsExpanded = !programGroupsExpanded },
+            sourcesExpanded = sourcesExpanded,
+            onToggleSources = { sourcesExpanded = !sourcesExpanded },
         )
 
         HeaderRow(
@@ -145,9 +142,25 @@ fun HomeScreen(
                                     channel = ch,
                                     favorite = ch.id in favIds,
                                     onPlay = { onPlay(ch) },
-                                    onToggleFavorite = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
+                                    onToggleFavorite = {
+                                        scope.launch {
+                                            if (FavRepo.toggle(ch)) {
+                                                if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                            } else {
+                                                toast("收藏操作失败")
+                                            }
+                                        }
+                                    },
                                     onEpg = { epgChannel = ch },
-                                    onLongPress = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
+                                    onLongPress = {
+                                        scope.launch {
+                                            if (FavRepo.toggle(ch)) {
+                                                if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                            } else {
+                                                toast("收藏操作失败")
+                                            }
+                                        }
+                                    },
                                 )
                             }
                             if (state.loadingMore) {
@@ -172,9 +185,25 @@ fun HomeScreen(
                                         channel = ch,
                                         favorite = ch.id in favIds,
                                         onPlay = { onPlay(ch) },
-                                        onToggleFavorite = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
+                                        onToggleFavorite = {
+                                            scope.launch {
+                                                if (FavRepo.toggle(ch)) {
+                                                    if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                                } else {
+                                                    toast("收藏操作失败")
+                                                }
+                                            }
+                                        },
                                         onEpg = { epgChannel = ch },
-                                        onLongPress = { scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
+                                        onLongPress = {
+                                            scope.launch {
+                                                if (FavRepo.toggle(ch)) {
+                                                    if (state.filter is ChannelFilter.Favorite) controller.reload()
+                                                } else {
+                                                    toast("收藏操作失败")
+                                                }
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -202,6 +231,7 @@ fun HomeScreen(
         )
     }
 
+    onOpenGroup.hashCode()
 }
 
 @Composable
@@ -240,8 +270,8 @@ private fun SearchDialog(query: String, onQueryChange: (String) -> Unit, onDismi
 private fun FilterChipsRow(
     state: HomeUiState,
     onSelectFilter: (ChannelFilter) -> Unit,
-    programGroupsExpanded: Boolean,
-    onToggleProgramGroups: () -> Unit,
+    sourcesExpanded: Boolean,
+    onToggleSources: () -> Unit,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
@@ -250,40 +280,34 @@ private fun FilterChipsRow(
     ) {
         item {
             FilterChip(
-                selected = state.filter is ChannelFilter.All || state.filter is ChannelFilter.ByProgramGroup,
-                onClick = onToggleProgramGroups,
-                label = { Text("节目分组") },
+                selected = state.filter is ChannelFilter.All || state.filter is ChannelFilter.BySource,
+                onClick = onToggleSources,
+                label = { Text("直播源") },
                 colors = filterChipColors(),
                 trailingIcon = {
                     Icon(
-                        if (programGroupsExpanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = if (programGroupsExpanded) "收起分类" else "展开分类",
+                        if (sourcesExpanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (sourcesExpanded) "收起直播源" else "展开直播源",
                         modifier = Modifier.size(16.dp),
                     )
                 },
             )
         }
-        if (programGroupsExpanded) {
+        if (sourcesExpanded) {
             item {
                 FilterChip(
                     selected = state.filter is ChannelFilter.All,
                     onClick = { onSelectFilter(ChannelFilter.All) },
-                    label = { Text("全部节目") },
+                    label = { Text("全部直播源") },
                     colors = filterChipColors(),
                 )
             }
-            items(state.programGroups.size, key = { state.programGroups[it].name }) { i ->
-                val group = state.programGroups[i]
+            items(state.sources.size, key = { state.sources[it].id }) { i ->
+                val src = state.sources[i]
                 FilterChip(
-                    selected = (state.filter as? ChannelFilter.ByProgramGroup)?.group?.name == group.name,
-                    onClick = { onSelectFilter(ChannelFilter.ByProgramGroup(group)) },
-                    label = {
-                        Text(
-                            "${group.name}（${group.itemCount}）",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
+                    selected = (state.filter as? ChannelFilter.BySource)?.source?.id == src.id,
+                    onClick = { onSelectFilter(ChannelFilter.BySource(src)) },
+                    label = { Text(src.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     colors = filterChipColors(),
                 )
             }
@@ -296,12 +320,18 @@ private fun FilterChipsRow(
                 colors = filterChipColors(),
             )
         }
-        items(state.sources.filter { !it.isNas }.size, key = { state.sources.filter { !it.isNas }[it].id }) { i ->
-            val src = state.sources.filter { !it.isNas }[i]
+        items(state.customGroups.size, key = { state.customGroups[it].id ?: state.customGroups[it].name }) { i ->
+            val group = state.customGroups[i]
             FilterChip(
-                selected = (state.filter as? ChannelFilter.BySource)?.source?.id == src.id,
-                onClick = { onSelectFilter(ChannelFilter.BySource(src)) },
-                label = { Text(src.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                selected = (state.filter as? ChannelFilter.ByCustomGroup)?.group?.id == group.id,
+                onClick = { onSelectFilter(ChannelFilter.ByCustomGroup(group)) },
+                label = {
+                    Text(
+                        "${group.name}（${group.itemCount}）",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 colors = filterChipColors(),
             )
         }

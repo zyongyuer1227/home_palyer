@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
@@ -89,6 +90,9 @@ fun FavoritesScreen(
     var epgChannel by remember { mutableStateOf<Channel?>(null) }
     var creatingGroup by remember { mutableStateOf(false) }
     var editingGroup by remember { mutableStateOf<GroupItem?>(null) }
+    var deletingGroup by remember { mutableStateOf<GroupItem?>(null) }
+    var confirmClearFavorites by remember { mutableStateOf(false) }
+    var confirmClearRecent by remember { mutableStateOf(false) }
 
     fun reloadGroups() {
         scope.launch {
@@ -127,14 +131,30 @@ fun FavoritesScreen(
                 if (favorites.isEmpty()) {
                     EmptyBox("暂无收藏，长按频道可添加收藏", Modifier.weight(1f))
                 } else {
-                    ChannelListView(
-                        channels = favorites,
-                        favoriteIds = favIds,
-                        onPlay = onPlay,
-                        onToggleFavorite = { ch -> scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
-                        onEpg = { epgChannel = it },
-                        modifier = Modifier.weight(1f),
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "${favorites.size} 个收藏频道",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { confirmClearFavorites = true }) {
+                                Text("清空收藏")
+                            }
+                        }
+                        ChannelListView(
+                            channels = favorites,
+                            favoriteIds = favIds,
+                            onPlay = onPlay,
+                            onToggleFavorite = { ch -> scope.launch { if (!FavRepo.toggle(ch)) toast("收藏操作失败") } },
+                            onEpg = { epgChannel = it },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
             1 -> {
@@ -210,6 +230,13 @@ fun FavoritesScreen(
                                                 tint = MaterialTheme.colorScheme.primary,
                                             )
                                         }
+                                        IconButton(onClick = { deletingGroup = g }) {
+                                            Icon(
+                                                Icons.Filled.Delete,
+                                                contentDescription = "删除分组",
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
                                     }
                                     if (index != groups!!.lastIndex) {
                                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -229,6 +256,22 @@ fun FavoritesScreen(
                         modifier = Modifier.weight(1f),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     ) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${recentItems.size} 条最近播放",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { confirmClearRecent = true }) {
+                                    Text("清空最近")
+                                }
+                            }
+                        }
                         item {
                             Card(
                                 shape = RoundedCornerShape(20.dp),
@@ -316,6 +359,82 @@ fun FavoritesScreen(
             onError = { toast(it) },
         )
     }
+
+    deletingGroup?.let { group ->
+        ConfirmDialog(
+            title = "删除分组",
+            text = "确定删除“${group.name}”吗？分组内频道不会被删除。",
+            confirmText = "删除",
+            onDismiss = { deletingGroup = null },
+            onConfirm = {
+                val id = group.id
+                deletingGroup = null
+                if (id == null) {
+                    toast("删除分组失败")
+                    return@ConfirmDialog
+                }
+                scope.launch {
+                    val ok = runCatching { ApiClient.service.deleteGroup(id) }.getOrNull()?.isSuccessful == true
+                    if (ok) {
+                        toast("分组已删除")
+                        reloadGroups()
+                    } else {
+                        toast("删除分组失败")
+                    }
+                }
+            },
+        )
+    }
+
+    if (confirmClearFavorites) {
+        ConfirmDialog(
+            title = "清空收藏",
+            text = "确定取消所有收藏频道吗？",
+            confirmText = "清空",
+            onDismiss = { confirmClearFavorites = false },
+            onConfirm = {
+                confirmClearFavorites = false
+                scope.launch {
+                    if (FavRepo.clearAll()) toast("收藏已清空") else toast("清空收藏失败")
+                }
+            },
+        )
+    }
+
+    if (confirmClearRecent) {
+        ConfirmDialog(
+            title = "清空最近播放",
+            text = "确定清空最近播放记录吗？",
+            confirmText = "清空",
+            onDismiss = { confirmClearRecent = false },
+            onConfirm = {
+                confirmClearRecent = false
+                RecentRepo.clear()
+                toast("最近播放已清空")
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    text: String,
+    confirmText: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(confirmText) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 @Composable

@@ -56,6 +56,9 @@ interface ApiService {
         @Body body: GroupItemsBody,
     ): Response<GroupItem>
 
+    @DELETE("api/groups/{id}")
+    suspend fun deleteGroup(@Path("id") id: Int): Response<Unit>
+
     @GET("api/epg/{channelId}")
     suspend fun epg(@Path("channelId") channelId: Int): Response<Epg>
 
