@@ -17,7 +17,9 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
@@ -50,10 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.iptv.player.data.api.ApiClient
 import com.iptv.player.data.api.Channel
-import com.iptv.player.data.api.GroupItem
-import com.iptv.player.data.api.bodyOrThrow
 import com.iptv.player.data.repo.FavRepo
 import com.iptv.player.ui.common.EmptyBox
 import com.iptv.player.ui.common.ErrorBox
@@ -77,8 +76,7 @@ fun HomeScreen(
 
     var epgChannel by remember { mutableStateOf<Channel?>(null) }
     var showSearch by remember { mutableStateOf(false) }
-    var showGroups by remember { mutableStateOf(false) }
-    var groups by remember { mutableStateOf<List<GroupItem>?>(null) }
+    var programGroupsExpanded by remember { mutableStateOf(false) }
 
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
@@ -104,7 +102,8 @@ fun HomeScreen(
         FilterChipsRow(
             state = state,
             onSelectFilter = { controller.selectFilter(it) },
-            onOpenGroups = { showGroups = true },
+            programGroupsExpanded = programGroupsExpanded,
+            onToggleProgramGroups = { programGroupsExpanded = !programGroupsExpanded },
         )
 
         HeaderRow(
@@ -203,25 +202,6 @@ fun HomeScreen(
         )
     }
 
-    if (showGroups) {
-        GroupsDialog(
-            groups = groups,
-            onSelect = { id ->
-                showGroups = false
-                onOpenGroup(id)
-            },
-            onDismiss = { showGroups = false },
-            onLoad = {
-                if (groups == null) {
-                    groups = try {
-                        ApiClient.service.groups().bodyOrThrow()
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                }
-            },
-        )
-    }
 }
 
 @Composable
@@ -260,7 +240,8 @@ private fun SearchDialog(query: String, onQueryChange: (String) -> Unit, onDismi
 private fun FilterChipsRow(
     state: HomeUiState,
     onSelectFilter: (ChannelFilter) -> Unit,
-    onOpenGroups: () -> Unit,
+    programGroupsExpanded: Boolean,
+    onToggleProgramGroups: () -> Unit,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
@@ -269,11 +250,43 @@ private fun FilterChipsRow(
     ) {
         item {
             FilterChip(
-                selected = state.filter is ChannelFilter.All,
-                onClick = { onSelectFilter(ChannelFilter.All) },
-                label = { Text("全部") },
+                selected = state.filter is ChannelFilter.All || state.filter is ChannelFilter.ByProgramGroup,
+                onClick = onToggleProgramGroups,
+                label = { Text("节目分组") },
                 colors = filterChipColors(),
+                trailingIcon = {
+                    Icon(
+                        if (programGroupsExpanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = if (programGroupsExpanded) "收起分类" else "展开分类",
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
             )
+        }
+        if (programGroupsExpanded) {
+            item {
+                FilterChip(
+                    selected = state.filter is ChannelFilter.All,
+                    onClick = { onSelectFilter(ChannelFilter.All) },
+                    label = { Text("全部节目") },
+                    colors = filterChipColors(),
+                )
+            }
+            items(state.programGroups.size, key = { state.programGroups[it].name }) { i ->
+                val group = state.programGroups[i]
+                FilterChip(
+                    selected = (state.filter as? ChannelFilter.ByProgramGroup)?.group?.name == group.name,
+                    onClick = { onSelectFilter(ChannelFilter.ByProgramGroup(group)) },
+                    label = {
+                        Text(
+                            "${group.name}（${group.itemCount}）",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    colors = filterChipColors(),
+                )
+            }
         }
         item {
             FilterChip(
@@ -281,21 +294,6 @@ private fun FilterChipsRow(
                 onClick = { onSelectFilter(ChannelFilter.Favorite) },
                 label = { Text("收藏") },
                 colors = filterChipColors(),
-            )
-        }
-        item {
-            FilterChip(
-                selected = false,
-                onClick = onOpenGroups,
-                label = { Text("分组") },
-                colors = filterChipColors(),
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Folder,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                },
             )
         }
         items(state.sources.filter { !it.isNas }.size, key = { state.sources.filter { !it.isNas }[it].id }) { i ->
@@ -362,36 +360,4 @@ private fun HeaderRow(
             )
         }
     }
-}
-
-@Composable
-private fun GroupsDialog(
-    groups: List<GroupItem>?,
-    onSelect: (Int) -> Unit,
-    onDismiss: () -> Unit,
-    onLoad: suspend () -> Unit,
-) {
-    LaunchedEffect(Unit) { onLoad() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("自定义分组") },
-        text = {
-            when {
-                groups == null -> LoadingBox("加载分组...")
-                groups.isEmpty() -> Text("暂无自定义分组", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    groups.forEach { g ->
-                        TextButton(onClick = { onSelect(g.id ?: return@TextButton) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                "${g.name}（${g.itemCount}）",
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
 }

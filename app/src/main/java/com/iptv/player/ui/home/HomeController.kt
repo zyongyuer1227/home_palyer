@@ -2,7 +2,10 @@ package com.iptv.player.ui.home
 
 import com.iptv.player.data.api.Channel
 import com.iptv.player.data.api.ChannelPage
+import com.iptv.player.data.api.GroupItem
 import com.iptv.player.data.api.Source
+import com.iptv.player.data.api.ApiClient
+import com.iptv.player.data.api.bodyOrThrow
 import com.iptv.player.data.repo.ChannelRepo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
@@ -20,10 +23,12 @@ sealed interface ChannelFilter {
     data object All : ChannelFilter
     data object Favorite : ChannelFilter
     data class BySource(val source: Source) : ChannelFilter
+    data class ByProgramGroup(val group: GroupItem) : ChannelFilter
 }
 
 data class HomeUiState(
     val sources: List<Source> = emptyList(),
+    val programGroups: List<GroupItem> = emptyList(),
     val filter: ChannelFilter = ChannelFilter.All,
     val query: String = "",
     val channels: List<Channel> = emptyList(),
@@ -46,6 +51,7 @@ class HomeController(private val scope: CoroutineScope) {
 
     init {
         loadSources()
+        loadProgramGroups()
         queryJob = scope.launch {
             queryFlow
                 .debounce(400)
@@ -62,6 +68,15 @@ class HomeController(private val scope: CoroutineScope) {
             runCatching { ChannelRepo.sources().getOrThrow() }
                 .onSuccess { srcs ->
                     _state.update { it.copy(sources = srcs) }
+                }
+        }
+    }
+
+    fun loadProgramGroups() {
+        scope.launch {
+            runCatching { ApiClient.service.channelGroups().bodyOrThrow() }
+                .onSuccess { groups ->
+                    _state.update { it.copy(programGroups = groups.filter { g -> g.name.isNotBlank() }) }
                 }
         }
     }
@@ -120,8 +135,10 @@ class HomeController(private val scope: CoroutineScope) {
         val q = s.query.trim().takeIf { it.isNotEmpty() }
         val favorite = s.filter is ChannelFilter.Favorite
         val sourceId = (s.filter as? ChannelFilter.BySource)?.source?.id
+        val grp = (s.filter as? ChannelFilter.ByProgramGroup)?.group?.name
         return runCatching {
             ChannelRepo.channels(
+                grp = grp,
                 q = q,
                 favorite = favorite,
                 sourceId = sourceId,
