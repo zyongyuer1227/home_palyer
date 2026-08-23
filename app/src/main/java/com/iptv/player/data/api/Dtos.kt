@@ -2,6 +2,7 @@ package com.iptv.player.data.api
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class Health(@SerialName("ok") val ok: Boolean = false)
@@ -15,7 +16,7 @@ data class Source(
     @SerialName("channel_count") val channelCount: Int = 0,
     val protocol: String? = null,
     val host: String? = null,
-    val port: Int? = null,
+    val port: JsonElement? = null,
     @SerialName("mount_path") val mountPath: String? = null,
 ) {
     val isNas: Boolean get() = !protocol.isNullOrEmpty()

@@ -3,7 +3,6 @@ package com.iptv.player.ui.player
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
-import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -75,6 +74,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
 import com.iptv.player.data.api.Channel
@@ -169,24 +170,20 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
         val activity = context as? android.app.Activity
         val previous = activity?.requestedOrientation
         val window = activity?.window
+        val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (isLandscapeFullscreen) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            window?.decorView?.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
+            insetsController?.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController?.hide(WindowInsetsCompat.Type.systemBars())
         } else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            window?.decorView?.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
             activity?.requestedOrientation = previous ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
@@ -412,6 +409,7 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                         ).joinToString(" · ").ifBlank { "直播" }
                         is PlayPayload.Nas -> "${currentNas?.sourceName ?: payload.sourceName} · NAS"
                     },
+                    showFavorite = payload is PlayPayload.Live,
                     isFavorite = currentLiveChannel?.id?.let { it in favIds } == true,
                     onFavorite = {
                         currentLiveChannel?.let { ch ->
@@ -558,6 +556,7 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
 private fun TopBar(
     title: String,
     subtitle: String,
+    showFavorite: Boolean,
     isFavorite: Boolean,
     onFavorite: () -> Unit,
     onClose: () -> Unit,
@@ -588,12 +587,14 @@ private fun TopBar(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(onClick = onFavorite) {
-            Icon(
-                if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                contentDescription = "收藏",
-                tint = if (isFavorite) Color(0xFFFFC107) else Color.White,
-            )
+        if (showFavorite) {
+            IconButton(onClick = onFavorite) {
+                Icon(
+                    if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                    contentDescription = "收藏",
+                    tint = if (isFavorite) Color(0xFFFFC107) else Color.White,
+                )
+            }
         }
     }
 }

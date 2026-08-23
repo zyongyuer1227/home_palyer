@@ -200,7 +200,6 @@ fun MainScaffold(
             MainTab.LIVE -> HomeScreen(
                 modifier = Modifier.padding(innerPadding),
                 onPlay = { ch -> onOpenPlayer(PlayPayload.Live(ch).toJson()) },
-                onOpenGroup = onOpenGroup,
             )
             MainTab.NAS -> NasScreen(
                 modifier = Modifier.padding(innerPadding),

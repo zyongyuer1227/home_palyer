@@ -39,7 +39,7 @@ interface ApiService {
     suspend fun favorites(): Response<List<Channel>>
 
     @POST("api/favorites")
-    suspend fun addFavorite(@Body body: FavoriteBody): Response<Channel>
+    suspend fun addFavorite(@Body body: FavoriteBody): Response<OkBody>
 
     @DELETE("api/favorites/{channelId}")
     suspend fun removeFavorite(@Path("channelId") channelId: Int): Response<Unit>
@@ -54,7 +54,7 @@ interface ApiService {
     suspend fun updateGroupItems(
         @Path("id") id: Int,
         @Body body: GroupItemsBody,
-    ): Response<GroupItem>
+    ): Response<OkBody>
 
     @DELETE("api/groups/{id}")
     suspend fun deleteGroup(@Path("id") id: Int): Response<Unit>
@@ -86,3 +86,6 @@ data class GroupNameBody(val name: String)
 
 @kotlinx.serialization.Serializable
 data class GroupItemsBody(val channelIds: List<Int>)
+
+@kotlinx.serialization.Serializable
+data class OkBody(val ok: Boolean = false)
