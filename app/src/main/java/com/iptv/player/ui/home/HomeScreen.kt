@@ -74,7 +74,6 @@ fun HomeScreen(
     val favIds by FavRepo.favoriteIds.collectAsState()
 
     var epgChannel by remember { mutableStateOf<Channel?>(null) }
-    var actionChannel by remember { mutableStateOf<Channel?>(null) }
     var showSearch by remember { mutableStateOf(false) }
     var showGroups by remember { mutableStateOf(false) }
     var groups by remember { mutableStateOf<List<GroupItem>?>(null) }
@@ -147,7 +146,7 @@ fun HomeScreen(
                                     onPlay = { onPlay(ch) },
                                     onToggleFavorite = { scope.launch { FavRepo.toggle(ch) } },
                                     onEpg = { epgChannel = ch },
-                                    onLongPress = { actionChannel = ch },
+                                    onLongPress = { scope.launch { FavRepo.toggle(ch) } },
                                 )
                             }
                             if (state.loadingMore) {
@@ -174,7 +173,7 @@ fun HomeScreen(
                                         onPlay = { onPlay(ch) },
                                         onToggleFavorite = { scope.launch { FavRepo.toggle(ch) } },
                                         onEpg = { epgChannel = ch },
-                                        onLongPress = { actionChannel = ch },
+                                        onLongPress = { scope.launch { FavRepo.toggle(ch) } },
                                     )
                                 }
                             }
@@ -199,26 +198,6 @@ fun HomeScreen(
             query = state.query,
             onQueryChange = { controller.setQuery(it) },
             onDismiss = { showSearch = false },
-        )
-    }
-
-    actionChannel?.let { ch ->
-        ChannelActionDialog(
-            channel = ch,
-            favorite = ch.id in favIds,
-            onPlay = {
-                actionChannel = null
-                onPlay(ch)
-            },
-            onToggleFavorite = {
-                actionChannel = null
-                scope.launch { FavRepo.toggle(ch) }
-            },
-            onEpg = {
-                actionChannel = null
-                epgChannel = ch
-            },
-            onDismiss = { actionChannel = null },
         )
     }
 

@@ -2,6 +2,8 @@ package com.iptv.player.ui.nas
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -140,6 +142,7 @@ private fun SourcePicker(sources: List<Source>, onSelect: (Source) -> Unit, modi
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NasBrowser(
     source: Source,
@@ -243,6 +246,7 @@ private fun NasBrowser(
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.basicMarquee(),
                                     )
                                     Text(
                                         formatSize(video.size),

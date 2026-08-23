@@ -6,7 +6,8 @@ import android.media.AudioManager
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -63,10 +66,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -546,6 +545,7 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TopBar(
     title: String,
@@ -570,6 +570,7 @@ private fun TopBar(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.basicMarquee(),
             )
             Text(
                 subtitle,
@@ -690,7 +691,9 @@ private fun BottomBar(
                 )
             }
             IconButton(onClick = onToggleFullscreen) {
-                RotateScreenIcon(
+                Icon(
+                    if (isLandscapeFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                    contentDescription = if (isLandscapeFullscreen) "退出全屏" else "全屏",
                     tint = Color.White,
                     modifier = Modifier.size(28.dp),
                 )
@@ -788,6 +791,7 @@ private fun BottomBar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeDialog(
     episodes: List<NasVideo>,
@@ -826,6 +830,7 @@ private fun EpisodeDialog(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.basicMarquee(),
                             )
                             if (selected) {
                                 Text(
@@ -862,63 +867,6 @@ private fun parentDir(path: String): String? {
         index < 0 -> null
         index == 0 -> "/"
         else -> clean.substring(0, index)
-    }
-}
-
-@Composable
-private fun RotateScreenIcon(
-    tint: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(
-            width = w * 0.075f,
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-
-        drawRoundRect(
-            color = tint,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.12f, h * 0.54f),
-            size = androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.28f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f, w * 0.08f),
-            style = stroke,
-        )
-        drawLine(
-            color = tint,
-            start = androidx.compose.ui.geometry.Offset(w * 0.20f, h * 0.62f),
-            end = androidx.compose.ui.geometry.Offset(w * 0.20f, h * 0.74f),
-            strokeWidth = stroke.width,
-            cap = StrokeCap.Round,
-        )
-
-        drawRoundRect(
-            color = tint,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.54f, h * 0.18f),
-            size = androidx.compose.ui.geometry.Size(w * 0.30f, h * 0.54f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f, w * 0.08f),
-            style = stroke,
-        )
-
-        val arrowDown = Path().apply {
-            moveTo(w * 0.20f, h * 0.20f)
-            cubicTo(w * 0.12f, h * 0.28f, w * 0.10f, h * 0.38f, w * 0.16f, h * 0.48f)
-            lineTo(w * 0.25f, h * 0.40f)
-            moveTo(w * 0.16f, h * 0.48f)
-            lineTo(w * 0.08f, h * 0.39f)
-        }
-        drawPath(arrowDown, tint, style = stroke)
-
-        val arrowUp = Path().apply {
-            moveTo(w * 0.28f, h * 0.42f)
-            cubicTo(w * 0.36f, h * 0.33f, w * 0.39f, h * 0.22f, w * 0.34f, h * 0.12f)
-            lineTo(w * 0.25f, h * 0.20f)
-            moveTo(w * 0.34f, h * 0.12f)
-            lineTo(w * 0.43f, h * 0.20f)
-        }
-        drawPath(arrowUp, tint, style = stroke)
     }
 }
 
