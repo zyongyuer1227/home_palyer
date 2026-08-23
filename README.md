@@ -10,6 +10,8 @@
 
 Home Player is a native Android client for a Web IPTV backend. It focuses on live TV playback, channel favorites and groups, NAS video browsing, and a clean player experience for phones.
 
+> **Companion app**: Home Player pairs with the open-source [Web IPTV](https://github.com/zyongyuer1227/web_iptv) server. Both are developed by the same author but **may not always be released in sync** — please refer to the author's announcements on the [Web IPTV Releases](https://github.com/zyongyuer1227/web_iptv/releases) page for release information.
+
 ## Features
 
 - Multiple backend server profiles with health checks.
