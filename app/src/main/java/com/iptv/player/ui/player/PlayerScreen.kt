@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,9 +48,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,7 +77,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.ui.PlayerView
 import com.iptv.player.data.api.Channel
 import com.iptv.player.data.api.NasVideo
@@ -102,6 +108,47 @@ private val BottomScrim = Brush.verticalGradient(
     1f to Color.Black.copy(alpha = 0.9f),
 )
 
+private data class SelectableTrack(
+    val type: Int,
+    val group: TrackGroup,
+    val index: Int,
+    val label: String,
+    val selected: Boolean,
+    val supported: Boolean,
+)
+
+private fun selectableTracks(tracks: Tracks, type: Int): List<SelectableTrack> = buildList {
+    tracks.groups.filter { it.type == type }.forEach { group ->
+        for (index in 0 until group.length) {
+            val format = group.getTrackFormat(index)
+            add(
+                SelectableTrack(
+                    type = type,
+                    group = group.mediaTrackGroup,
+                    index = index,
+                    label = trackLabel(format, type, size + 1),
+                    selected = group.isTrackSelected(index),
+                    supported = group.isTrackSupported(index),
+                )
+            )
+        }
+    }
+}
+
+private fun trackLabel(format: Format, type: Int, fallbackIndex: Int): String {
+    val fallback = if (type == C.TRACK_TYPE_AUDIO) "音轨 $fallbackIndex" else "字幕 $fallbackIndex"
+    return buildList {
+        format.label?.takeIf { it.isNotBlank() }?.let(::add)
+        format.language?.takeIf { it.isNotBlank() && it != "und" }?.let(::add)
+        if (type == C.TRACK_TYPE_AUDIO && format.channelCount > 0) {
+            add("${format.channelCount} 声道")
+        }
+        (format.codecs ?: format.sampleMimeType?.substringAfter('/'))
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::add)
+    }.distinct().joinToString(" · ").ifBlank { fallback }
+}
+
 @Composable
 fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     val context = LocalContext.current
@@ -113,9 +160,7 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
         }.getOrNull()
     }
 
-    var quality by remember { mutableStateOf(NasQuality.ORIGINAL) }
-    var tryDirect by remember { mutableStateOf(false) }
-    var audioCodec by remember { mutableStateOf<String?>(null) }
+    val quality by PlaybackController.nasQuality.collectAsState()
     var controlsVisible by remember { mutableStateOf(true) }
     var qualityMenu by remember { mutableStateOf(false) }
     var isLandscapeFullscreen by remember { mutableStateOf(false) }
@@ -127,6 +172,8 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     var currentNas by remember { mutableStateOf<PlayPayload.Nas?>(null) }
     var episodeList by remember { mutableStateOf<List<NasVideo>>(emptyList()) }
     var episodeDialogVisible by remember { mutableStateOf(false) }
+    var trackDialogVisible by remember { mutableStateOf(false) }
+    var currentTracks by remember { mutableStateOf(PlaybackController.player.currentTracks) }
     var autoAdvanceLocked by remember { mutableStateOf(false) }
 
     val status by PlaybackController.status.collectAsState()
@@ -138,32 +185,35 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
     var duration by remember { mutableLongStateOf(0L) }
     var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }
     val scope = rememberCoroutineScope()
+    val audioTracks = selectableTracks(currentTracks, C.TRACK_TYPE_AUDIO)
+    val subtitleTracks = selectableTracks(currentTracks, C.TRACK_TYPE_TEXT)
+    val hasTrackOptions = audioTracks.size > 1 || subtitleTracks.isNotEmpty()
     val closePlayer = {
         PlaybackController.stop()
         onClose()
+    }
+
+    DisposableEffect(Unit) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                currentTracks = tracks
+            }
+        }
+        PlaybackController.player.addListener(listener)
+        onDispose { PlaybackController.player.removeListener(listener) }
     }
     fun playNasEpisode(nas: PlayPayload.Nas) {
         playbackError = null
         controlsVisible = true
         currentNas = nas
         RecentRepo.record(nas)
-        scope.launch {
-            val nextQuality = NasQuality.fromLabel(nas.quality)
-            quality = nextQuality
-            tryDirect = nas.tryDirect
-            val nextAudioCodec = if (nextQuality == NasQuality.ORIGINAL) {
-                runCatching { NasRepo.streamInfo(nas.sourceId, nas.path).getOrThrow().audioCodec }.getOrNull()
-            } else {
-                null
-            }
-            audioCodec = nextAudioCodec
-            PlaybackController.playNas(
-                com.iptv.player.player.NasPlayRequest(nas.sourceId, nas.sourceName, nas.path, nas.name),
-                nextQuality,
-                nas.tryDirect,
-                nextAudioCodec,
-            )
-        }
+        val nextQuality = NasQuality.fromLabel(nas.quality)
+        PlaybackController.playNas(
+            com.iptv.player.player.NasPlayRequest(nas.sourceId, nas.sourceName, nas.path, nas.name),
+            nextQuality,
+            true,
+            null,
+        )
     }
 
     DisposableEffect(isLandscapeFullscreen) {
@@ -286,7 +336,7 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                 path = episode.path,
                 name = episode.name,
                 quality = quality.label,
-                tryDirect = tryDirect,
+                tryDirect = true,
             )
         )
     }
@@ -456,31 +506,18 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
                     canNextNas = canNextNas,
                     onShowEpisodes = { episodeDialogVisible = true },
                     onNextNas = { playNasAt(currentNasIndex + 1) },
+                    hasTrackOptions = hasTrackOptions,
+                    onShowTracks = { trackDialogVisible = true },
                     quality = quality,
-                    tryDirect = tryDirect,
                     qualityMenu = qualityMenu,
                     onQualityMenuToggle = { qualityMenu = !qualityMenu },
                     onSelectQuality = { q ->
                         qualityMenu = false
                         if (q != quality) {
-                            quality = q
                             val nas = currentNas
                             if (nas != null) {
-                                if (q == NasQuality.ORIGINAL && audioCodec == null) {
-                                    scope.launch {
-                                        audioCodec = runCatching {
-                                            NasRepo.streamInfo(nas.sourceId, nas.path).getOrThrow().audioCodec
-                                        }.getOrNull()
-                                    }
-                                }
-                                PlaybackController.reloadCurrentWith(q, tryDirect, audioCodec)
+                                PlaybackController.reloadCurrentWith(q, true, null)
                             }
-                        }
-                    },
-                    onTryDirectChange = { value ->
-                        tryDirect = value
-                        if (currentNas != null) {
-                            PlaybackController.reloadCurrentWith(quality, value, audioCodec)
                         }
                     },
                     onSeek = { target -> PlaybackController.player.seekTo(target) },
@@ -547,6 +584,30 @@ fun PlayerScreen(payloadJson: String?, onClose: () -> Unit) {
             currentPath = currentNas!!.path,
             onSelect = { index -> playNasAt(index) },
             onDismiss = { episodeDialogVisible = false },
+        )
+    }
+
+    if (trackDialogVisible && currentNas != null) {
+        TrackSelectionDialog(
+            audioTracks = audioTracks,
+            subtitleTracks = subtitleTracks,
+            onSelect = { option ->
+                PlaybackController.player.trackSelectionParameters =
+                    PlaybackController.player.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(option.type, false)
+                        .setOverrideForType(TrackSelectionOverride(option.group, option.index))
+                        .build()
+            },
+            onDisableSubtitles = {
+                PlaybackController.player.trackSelectionParameters =
+                    PlaybackController.player.trackSelectionParameters
+                        .buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                        .build()
+            },
+            onDismiss = { trackDialogVisible = false },
         )
     }
 }
@@ -620,12 +681,12 @@ private fun BottomBar(
     canNextNas: Boolean,
     onShowEpisodes: () -> Unit,
     onNextNas: () -> Unit,
+    hasTrackOptions: Boolean,
+    onShowTracks: () -> Unit,
     quality: NasQuality,
-    tryDirect: Boolean,
     qualityMenu: Boolean,
     onQualityMenuToggle: () -> Unit,
     onSelectQuality: (NasQuality) -> Unit,
-    onTryDirectChange: (Boolean) -> Unit,
     onSeek: (Long) -> Unit,
 ) {
     Column(
@@ -724,6 +785,13 @@ private fun BottomBar(
                 }
             }
             if (isNas) {
+                IconButton(onClick = onShowTracks, enabled = hasTrackOptions) {
+                    Icon(
+                        Icons.Filled.Subtitles,
+                        contentDescription = "音轨和字幕",
+                        tint = if (hasTrackOptions) Color.White else Color.White.copy(alpha = 0.35f),
+                    )
+                }
                 IconButton(onClick = onShowEpisodes, enabled = hasEpisodes) {
                     Icon(
                         Icons.AutoMirrored.Filled.FormatListBulleted,
@@ -766,16 +834,6 @@ private fun BottomBar(
                                 onClick = { onSelectQuality(q) },
                             )
                         }
-                        if (quality == NasQuality.ORIGINAL) {
-                            HorizontalDivider()
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("尝试直连", modifier = Modifier.weight(1f))
-                                Switch(checked = tryDirect, onCheckedChange = onTryDirectChange)
-                            }
-                        }
                     }
                 }
             } else {
@@ -796,6 +854,100 @@ private fun BottomBar(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 8.dp, top = 2.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun TrackSelectionDialog(
+    audioTracks: List<SelectableTrack>,
+    subtitleTracks: List<SelectableTrack>,
+    onSelect: (SelectableTrack) -> Unit,
+    onDisableSubtitles: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("音轨和字幕") },
+        text = {
+            LazyColumn {
+                if (audioTracks.isNotEmpty()) {
+                    item {
+                        Text(
+                            "音轨",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                        )
+                    }
+                    items(audioTracks.size) { index ->
+                        TrackOptionRow(audioTracks[index], onSelect)
+                    }
+                }
+                if (subtitleTracks.isNotEmpty()) {
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        Text(
+                            "字幕",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                    }
+                    item {
+                        val disabled = subtitleTracks.none { it.selected }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClick = onDisableSubtitles)
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = disabled, onClick = onDisableSubtitles)
+                            Text("关闭字幕", modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                    items(subtitleTracks.size) { index ->
+                        TrackOptionRow(subtitleTracks[index], onSelect)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        },
+    )
+}
+
+@Composable
+private fun TrackOptionRow(option: SelectableTrack, onSelect: (SelectableTrack) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = option.supported) { onSelect(option) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(
+            selected = option.selected,
+            onClick = { if (option.supported) onSelect(option) },
+            enabled = option.supported,
+        )
+        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(
+                option.label,
+                color = if (option.supported) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!option.supported) {
+                Text(
+                    "设备不支持",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }

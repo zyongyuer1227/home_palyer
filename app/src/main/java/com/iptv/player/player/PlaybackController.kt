@@ -59,6 +59,9 @@ object PlaybackController {
     private val _nasRequest = MutableStateFlow<NasPlayRequest?>(null)
     val nasRequest: StateFlow<NasPlayRequest?> = _nasRequest.asStateFlow()
 
+    private val _nasQuality = MutableStateFlow(NasQuality.ORIGINAL)
+    val nasQuality: StateFlow<NasQuality> = _nasQuality.asStateFlow()
+
     private val _canTryNext = MutableStateFlow(false)
     val canTryNext: StateFlow<Boolean> = _canTryNext.asStateFlow()
 
@@ -72,6 +75,7 @@ object PlaybackController {
     private var reconnectAttempts = 0
     private var reachedReady = false
     private var unsupportedAudioReported = false
+    private var unsupportedAudioFallback: PlayCandidate? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -81,7 +85,9 @@ object PlaybackController {
         val dataSourceFactory = DefaultDataSource.Factory(appContext)
         val sourceFactory = DefaultMediaSourceFactory(appContext).setDataSourceFactory(dataSourceFactory)
         val renderersFactory = DefaultRenderersFactory(appContext)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            // Keep platform MediaCodec first for efficiency. The bundled FFmpeg audio renderer
+            // is used only when Android has no decoder, notably for DTS/DTS-HD and TrueHD.
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         ExoPlayer.Builder(appContext)
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(sourceFactory)
@@ -171,37 +177,20 @@ object PlaybackController {
     private fun buildNasCandidates(
         req: NasPlayRequest,
         quality: NasQuality,
-        tryDirect: Boolean,
-        audioCodec: String?,
     ): List<PlayCandidate> {
         val path = req.path
-        val ext = path.substringAfterLast('.', "").lowercase()
-        val allowedAudio = listOf("aac", "mp3", "opus", "vorbis", "flac")
-        val directCapable = ext in listOf("mp4", "m4v", "mov") && audioCodec != null && audioCodec.lowercase() in allowedAudio
-
         val direct = NasRepo.fileUrl(req.sourceId, path)
-        val proxy = NasRepo.playlistUrl(req.sourceId, path)
-        val fallbackVod = NasRepo.vodUrl(req.sourceId, path, 1080)
 
-        return when {
-            quality != NasQuality.ORIGINAL -> {
-                val h = quality.h ?: 1080
-                val vod = NasRepo.vodUrl(req.sourceId, path, h)
-                listOfNotNull(vod?.let { PlayCandidate(it, "转码中 (${quality.label})") })
-            }
-            tryDirect || directCapable -> {
-                val c = mutableListOf<PlayCandidate>()
-                direct?.let { c += PlayCandidate(it, "原画直连") }
-                proxy?.let { c += PlayCandidate(it, "服务器代理") }
-                fallbackVod?.let { c += PlayCandidate(it, "兼容转码") }
-                c
-            }
-            else -> {
-                listOfNotNull(
-                    fallbackVod?.let { PlayCandidate(it, "兼容转码") },
-                    proxy?.let { PlayCandidate(it, "服务器代理") },
-                )
-            }
+        return if (quality == NasQuality.ORIGINAL) {
+            // Original quality is always the source file. Never silently transcode based on
+            // container or codec; resolution transcoding is an explicit user choice.
+            listOfNotNull(direct?.let { PlayCandidate(it, "原画直推") })
+        } else {
+            val height = quality.h ?: return emptyList()
+            listOfNotNull(
+                NasRepo.vodUrl(req.sourceId, path, height)
+                    ?.let { PlayCandidate(it, "转码中 (${quality.label})") },
+            )
         }
     }
 
@@ -211,6 +200,8 @@ object PlaybackController {
         cancelPending()
         _playingChannel.value = channel
         _nasRequest.value = null
+        _nasQuality.value = NasQuality.ORIGINAL
+        unsupportedAudioFallback = null
         playJob = scope.launch {
             _status.value = "正在启动CMAF共享流..."
             FileLogger.i("Player", "playLive channel=${channel.id} ${channel.name}")
@@ -245,10 +236,17 @@ object PlaybackController {
         cancelPending()
         _playingChannel.value = null
         _nasRequest.value = req
+        _nasQuality.value = quality
+        unsupportedAudioFallback = if (quality == NasQuality.ORIGINAL) {
+            NasRepo.vodUrl(req.sourceId, req.path, 1080)
+                ?.let { PlayCandidate(it, "自动兼容转码 (1080P)") }
+        } else {
+            null
+        }
         playJob = scope.launch {
             _status.value = "准备中..."
             FileLogger.i("Player", "playNas source=${req.sourceId} path=${req.path} quality=${quality.label} tryDirect=$tryDirect audioCodec=$audioCodec")
-            candidates = buildNasCandidates(req, quality, tryDirect, audioCodec)
+            candidates = buildNasCandidates(req, quality)
             FileLogger.i("Player", "nas candidates=${candidates.map { it.url + "(" + it.label + ")" }}")
             if (candidates.isEmpty()) {
                 _status.value = "播放失败：无可用方式"
@@ -267,6 +265,8 @@ object PlaybackController {
         _status.value = ""
         _playingChannel.value = null
         _nasRequest.value = null
+        _nasQuality.value = NasQuality.ORIGINAL
+        unsupportedAudioFallback = null
         _canTryNext.value = false
     }
 
@@ -396,7 +396,19 @@ object PlaybackController {
             .mapNotNull { it.sampleMimeType ?: it.codecs }
             .firstOrNull()
             ?: "未知音频编码"
-        val message = "当前资源的音频编码设备不支持（$codec），需要服务端转码为 AAC"
+        val automaticFallback = unsupportedAudioFallback
+        if (_nasRequest.value != null && automaticFallback != null) {
+            unsupportedAudioFallback = null
+            candidates = (candidates.take(candidateIndex + 1) + automaticFallback)
+                .distinctBy { it.url }
+            _nasQuality.value = NasQuality.Q1080
+            _status.value = "音频不支持（$codec），正在自动转码为 1080P/AAC..."
+            FileLogger.w("Player", "unsupported audio ($codec), switching once to automatic 1080P/AAC transcode")
+            advanceToNext()
+            return
+        }
+
+        val message = "当前资源的音频编码设备不支持（$codec），自动兼容转码后仍无法播放"
         _status.value = "音频编码不支持"
         FileLogger.w("Player", message)
         if (candidateIndex + 1 < candidates.size) {

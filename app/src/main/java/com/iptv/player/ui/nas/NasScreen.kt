@@ -31,7 +31,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
@@ -370,7 +369,7 @@ private fun NasBrowser(
     pendingVideo?.let { video ->
         QualityDialog(
             fileName = video.name,
-            onConfirm = { quality, tryDirect ->
+            onConfirm = { quality ->
                 pendingVideo = null
                 onPlay(
                     PlayPayload.Nas(
@@ -379,7 +378,7 @@ private fun NasBrowser(
                         path = video.path,
                         name = video.name,
                         quality = quality.label,
-                        tryDirect = tryDirect,
+                        tryDirect = true,
                     )
                 )
             },
@@ -404,11 +403,10 @@ private fun BreadcrumbItem(name: String, onClick: () -> Unit, last: Boolean) {
 @Composable
 private fun QualityDialog(
     fileName: String,
-    onConfirm: (NasQuality, Boolean) -> Unit,
+    onConfirm: (NasQuality) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var quality by remember { mutableStateOf(NasQuality.ORIGINAL) }
-    var tryDirect by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -435,25 +433,17 @@ private fun QualityDialog(
                 }
                 if (quality == NasQuality.ORIGINAL) {
                     androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("尝试直连", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "AC3/DTS 等设备可硬解的音频将尝试直接播放，失败自动回退代理",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(checked = tryDirect, onCheckedChange = { tryDirect = it })
-                    }
+                    Text(
+                        "原画优先直推；仅当设备不支持 DTS 等音频编码时，会提示一次并自动转为 1080P/AAC。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(quality, tryDirect) }) { Text("播放") }
+            TextButton(onClick = { onConfirm(quality) }) { Text("播放") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
