@@ -3,6 +3,7 @@ package com.iptv.player.player
 import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
@@ -31,6 +32,7 @@ data class PlayCandidate(
     val url: String,
     val label: String,
     val reconnectable: Boolean = false,
+    val mimeType: String? = null,
 )
 
 data class NasPlayRequest(
@@ -115,12 +117,18 @@ object PlaybackController {
         val source = channel.url
 
         fun abs(path: String): String = ApiUrl.absolute(path)
-        fun cand(url: String, label: String, reconnectable: Boolean = false) =
-            PlayCandidate(url, label, reconnectable)
+        fun cand(
+            url: String,
+            label: String,
+            reconnectable: Boolean = false,
+            mimeType: String? = null,
+        ) = PlayCandidate(url, label, reconnectable, mimeType)
 
         val list = mutableListOf<PlayCandidate>()
         when (info.type.lowercase()) {
             "hls" -> {
+                // Match the web player by preferring the server's shared CMAF HLS stream.
+                list += buildCmafCandidate(channel)
                 if (info.forceProxy) {
                     list += cand(abs(ts), "兼容模式", reconnectable = true)
                     list += cand(abs(fmp4), "兼容模式 fMP4", reconnectable = true)
@@ -153,6 +161,12 @@ object PlaybackController {
         list += cand(abs(fmp4), "fMP4", reconnectable = true)
         return list.distinctBy { it.url }
     }
+
+    private fun buildCmafCandidate(channel: Channel) = PlayCandidate(
+        url = ApiUrl.absolute("/api/cmaf/${channel.id}/manifest.m3u8"),
+        label = "CMAF共享流",
+        mimeType = MimeTypes.APPLICATION_M3U8,
+    )
 
     private fun buildNasCandidates(
         req: NasPlayRequest,
@@ -193,22 +207,36 @@ object PlaybackController {
 
     fun playLive(channel: Channel) {
         sequenceToken++
+        val token = sequenceToken
         cancelPending()
         _playingChannel.value = channel
         _nasRequest.value = null
         playJob = scope.launch {
-            _status.value = "正在探测流类型..."
+            _status.value = "正在启动CMAF共享流..."
             FileLogger.i("Player", "playLive channel=${channel.id} ${channel.name}")
+
+            // Start CMAF immediately. Stream probing only prepares the fallback chain and must
+            // not delay the first manifest request.
+            val cmaf = buildCmafCandidate(channel)
+            val genericFallbacks = buildLiveCandidates(
+                channel,
+                StreamInfo(channel.id, "unknown", false),
+            )
+            candidates = (listOf(cmaf) + genericFallbacks).distinctBy { it.url }
+            FileLogger.i("Player", "starting CMAF immediately candidates=${candidates.map { it.label }}")
+            startCandidate(0)
+
             val info = runCatching { ChannelRepo.streamInfo(channel.id).getOrThrow() }
                 .getOrNull() ?: StreamInfo(channel.id, "unknown", false)
-            candidates = buildLiveCandidates(channel, info)
-            FileLogger.i("Player", "streaminfo type=${info.type} forceProxy=${info.forceProxy} candidates=${candidates.map { it.url + "(" + it.label + ")" }}")
-            if (candidates.isEmpty()) {
-                _status.value = "播放失败：无可用方式"
-                _errors.tryEmit("播放失败：无可用方式")
-                return@launch
+            if (sequenceToken != token) return@launch
+
+            // Keep indexes stable if an unusually fast failure already advanced the player.
+            if (candidateIndex == 0) {
+                candidates = (listOf(cmaf) + buildLiveCandidates(channel, info))
+                    .distinctBy { it.url }
+                _canTryNext.value = candidates.size > 1
             }
-            startCandidate(0)
+            FileLogger.i("Player", "streaminfo type=${info.type} forceProxy=${info.forceProxy} candidates=${candidates.map { it.url + "(" + it.label + ")" }}")
         }
     }
 
@@ -266,7 +294,11 @@ object PlaybackController {
         unsupportedAudioReported = false
         player.stop()
         player.clearMediaItems()
-        player.setMediaItem(MediaItem.fromUri(cand.url))
+        val mediaItem = MediaItem.Builder()
+            .setUri(cand.url)
+            .apply { cand.mimeType?.let(::setMimeType) }
+            .build()
+        player.setMediaItem(mediaItem)
         player.prepare()
         player.play()
         startWatchdog()

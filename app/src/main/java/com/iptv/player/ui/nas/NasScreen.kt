@@ -62,8 +62,28 @@ import com.iptv.player.ui.common.ErrorBox
 import com.iptv.player.ui.common.LoadingBox
 import com.iptv.player.ui.common.PlayPayload
 import com.iptv.player.ui.common.formatSize
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+
+private data class NasEntryCount(
+    val directories: Int,
+    val files: Int,
+) {
+    val label: String
+        get() = buildList {
+            if (directories > 0) add("$directories 个文件夹")
+            if (files > 0) add("$files 个文件")
+            if (isEmpty()) add("空目录")
+        }.joinToString(" · ")
+}
+
+private suspend fun loadEntryCount(sourceId: Int, path: String?): NasEntryCount? =
+    NasRepo.browse(sourceId, path).getOrNull()?.let { browse ->
+        NasEntryCount(browse.dirs.size, browse.videos.size)
+    }
 
 private val NasDirStackStateSaver = Saver<MutableState<List<NasDir>>, String>(
     save = { state ->
@@ -119,6 +139,22 @@ fun NasScreen(modifier: Modifier = Modifier, onPlay: (PlayPayload.Nas) -> Unit) 
 
 @Composable
 private fun SourcePicker(sources: List<Source>, onSelect: (Source) -> Unit, modifier: Modifier = Modifier) {
+    val sourceIds = remember(sources) { sources.map { it.id } }
+    var entryCounts by remember(sourceIds) {
+        mutableStateOf<Map<Int, NasEntryCount?>>(emptyMap())
+    }
+
+    LaunchedEffect(sourceIds) {
+        sources.chunked(4).forEach { batch ->
+            val loaded = coroutineScope {
+                batch.map { source ->
+                    async { source.id to loadEntryCount(source.id, null) }
+                }.awaitAll()
+            }
+            entryCounts = entryCounts + loaded
+        }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -161,7 +197,11 @@ private fun SourcePicker(sources: List<Source>, onSelect: (Source) -> Unit, modi
                         Column(modifier = Modifier.weight(1f)) {
                             Text(src.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                "${src.channelCount} 个文件",
+                                when {
+                                    !entryCounts.containsKey(src.id) -> "正在统计..."
+                                    entryCounts[src.id] == null -> "数量未知"
+                                    else -> entryCounts.getValue(src.id)!!.label
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -191,6 +231,9 @@ private fun NasBrowser(
     var error by remember { mutableStateOf<String?>(null) }
     var pendingVideo by remember { mutableStateOf<NasVideo?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var entryCounts by remember(source.id) {
+        mutableStateOf<Map<String, NasEntryCount?>>(emptyMap())
+    }
 
     val currentPath = stack.lastOrNull()?.path
     fun goBack() {
@@ -212,6 +255,18 @@ private fun NasBrowser(
             dirs = b.dirs
             videos = b.videos
         }.onFailure { error = "打开目录失败：${it.message}" }
+    }
+
+    LaunchedEffect(source.id, currentPath, dirs) {
+        val missing = dirs.filterNot { entryCounts.containsKey(it.path) }
+        missing.chunked(4).forEach { batch ->
+            val loaded = coroutineScope {
+                batch.map { dir ->
+                    async { dir.path to loadEntryCount(source.id, dir.path) }
+                }.awaitAll()
+            }
+            entryCounts = entryCounts + loaded
+        }
     }
 
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -260,13 +315,23 @@ private fun NasBrowser(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Filled.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                Text(
-                                    dir.name,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                    Text(
+                                        dir.name,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        when {
+                                            !entryCounts.containsKey(dir.path) -> "正在统计..."
+                                            entryCounts[dir.path] == null -> "数量未知"
+                                            else -> entryCounts.getValue(dir.path)!!.label
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             if (index != dirs.lastIndex || videos.isNotEmpty()) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
