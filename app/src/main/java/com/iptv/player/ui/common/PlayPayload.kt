@@ -15,6 +15,6 @@ sealed interface PlayPayload {
         val path: String,
         val name: String,
         val quality: String = "原画",
-        val tryDirect: Boolean = false,
+        val tryDirect: Boolean = true,
     ) : PlayPayload
 }
